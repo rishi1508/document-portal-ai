@@ -42,7 +42,7 @@ const InputArea = () => {
       console.log('Response status:', response.status)
 
       if (!response.ok) {
-        throw new Error(\`HTTP \${response.status}: \${response.statusText}\`)
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
       }
 
       const data = await response.json()
@@ -59,8 +59,8 @@ const InputArea = () => {
       console.error('Error querying Bedrock:', error)
       toast.error('Failed to get response from AI')
 
-      addMessage('assistant', 
-        \`I'm having trouble connecting to the knowledge base right now. Error: \${error.message}\`,
+      addMessage('assistant',
+        `I'm having trouble connecting to the knowledge base right now. Error: ${error.message}`,
         []
       )
       setIsLoading(false)
@@ -68,7 +68,7 @@ const InputArea = () => {
   }
 
   return (
-    <div 
+    <div
       className={'fixed bottom-0 bg-dark-secondary border-t border-dark-tertiary p-6 z-30 transition-all duration-300 right-0 ' + (
         sidebarCollapsed ? 'left-20' : 'left-72'
       )}

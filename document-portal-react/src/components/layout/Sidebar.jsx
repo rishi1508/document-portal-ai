@@ -14,6 +14,7 @@ import UploadModal from '../modals/UploadModal'
 import HistoryModal from '../modals/HistoryModal'
 import WhatsNewModal from '../modals/WhatsNewModal'
 import ApprovalsModal from '../modals/ApprovalsModal'
+import ConfirmModal from '../modals/ConfirmModal'
 import toast from 'react-hot-toast'
 
 const iconMap = {
@@ -34,6 +35,7 @@ const Sidebar = () => {
   const [historyOpen, setHistoryOpen] = useState(false)
   const [whatsNewOpen, setWhatsNewOpen] = useState(false)
   const [approvalsOpen, setApprovalsOpen] = useState(false)
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
 
   const permissions = ROLE_PERMISSIONS[user?.department] || ROLE_PERMISSIONS.devops
   const allowedKBs = permissions.knowledgeBases
@@ -44,9 +46,7 @@ const Sidebar = () => {
   }
 
   const handleLogout = () => {
-    if (window.confirm('Are you sure you want to logout?')) {
-      logout()
-    }
+    logout()
   }
 
   return (
@@ -164,13 +164,13 @@ const Sidebar = () => {
             onClick={() => setSettingsOpen(true)}
           />
           <button
-            onClick={handleLogout}
-            className={'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-text-secondary hover:bg-dark-hover hover:text-text-primary transition-all ' + (
+            onClick={() => setShowLogoutConfirm(true)}
+            className={'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-text-secondary hover:bg-dark-hover hover:text-red-400 transition-all group ' + (
               sidebarCollapsed && 'justify-center'
             )}
             title={sidebarCollapsed ? 'Logout' : ''}
           >
-            <LogOut className="w-5 h-5 flex-shrink-0" />
+            <LogOut className="w-5 h-5 flex-shrink-0 group-hover:rotate-12 transition-transform" />
             {!sidebarCollapsed && <span className="text-sm">Logout</span>}
           </button>
         </div>
@@ -182,6 +182,17 @@ const Sidebar = () => {
       <HistoryModal isOpen={historyOpen} onClose={() => setHistoryOpen(false)} />
       <WhatsNewModal isOpen={whatsNewOpen} onClose={() => setWhatsNewOpen(false)} />
       <ApprovalsModal isOpen={approvalsOpen} onClose={() => setApprovalsOpen(false)} />
+      
+      <ConfirmModal
+        isOpen={showLogoutConfirm}
+        onClose={() => setShowLogoutConfirm(false)}
+        onConfirm={handleLogout}
+        title="Confirm Logout"
+        message="Are you sure you want to log out? Your current session will end."
+        confirmText="Logout"
+        cancelText="Stay Logged In"
+        variant="danger"
+      />
     </>
   )
 }
