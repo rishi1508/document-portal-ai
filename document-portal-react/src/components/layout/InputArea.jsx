@@ -4,7 +4,7 @@ import { useSettings } from '../../contexts/SettingsContext'
 import { Send } from 'lucide-react'
 import toast from 'react-hot-toast'
 
-const BEDROCK_QUERY_ENDPOINT = 'https://5gek16ypz1.execute-api.ap-south-1.amazonaws.com/test/query-bedrock'
+const BEDROCK_QUERY_ENDPOINT = import.meta.env.VITE_API_BASE + '/query-bedrock'
 
 const InputArea = () => {
   const [message, setMessage] = useState('')
@@ -27,30 +27,22 @@ const InputArea = () => {
     const userMessage = message.trim()
     setMessage('')
 
-    // Add user message
     addMessage('user', userMessage)
-
-    // Show loading
     setIsLoading(true)
 
     try {
       console.log('Querying Bedrock:', userMessage)
 
-      // Call Bedrock Lambda
       const response = await fetch(BEDROCK_QUERY_ENDPOINT, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          query: userMessage
-        })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: userMessage })
       })
 
       console.log('Response status:', response.status)
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+        throw new Error(\`HTTP \${response.status}: \${response.statusText}\`)
       }
 
       const data = await response.json()
@@ -67,9 +59,8 @@ const InputArea = () => {
       console.error('Error querying Bedrock:', error)
       toast.error('Failed to get response from AI')
 
-      // Fallback to error message
       addMessage('assistant', 
-        `I'm having trouble connecting to the knowledge base right now. Error: ${error.message}`,
+        \`I'm having trouble connecting to the knowledge base right now. Error: \${error.message}\`,
         []
       )
       setIsLoading(false)
