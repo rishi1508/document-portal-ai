@@ -2,11 +2,14 @@
 const DOCS_KEY = 'documind_docs'
 const REQUESTS_KEY = 'documind_doc_requests'
 
-const API_ENDPOINT = 'https://5gek16ypz1.execute-api.ap-south-1.amazonaws.com/test/upload'
-const LIST_DOCS_ENDPOINT = 'https://5gek16ypz1.execute-api.ap-south-1.amazonaws.com/test/list-documents'
-const APPROVALS_BULK_ENDPOINT = 'https://5gek16ypz1.execute-api.ap-south-1.amazonaws.com/test/approvals/bulk'
-const APPROVALS_PENDING_ENDPOINT = 'https://5gek16ypz1.execute-api.ap-south-1.amazonaws.com/test/approvals/pending'
-const APPROVALS_APPROVE_ENDPOINT = 'https://5gek16ypz1.execute-api.ap-south-1.amazonaws.com/test/approvals'
+const API_BASE = import.meta.env.VITE_API_BASE
+const S3_BUCKET = import.meta.env.VITE_S3_BUCKET
+
+const API_ENDPOINT = `${API_BASE}/upload`
+const LIST_DOCS_ENDPOINT = `${API_BASE}/list-documents`
+const APPROVALS_BULK_ENDPOINT = `${API_BASE}/approvals/bulk`
+const APPROVALS_PENDING_ENDPOINT = `${API_BASE}/approvals/pending`
+const APPROVALS_APPROVE_ENDPOINT = `${API_BASE}/approvals`
 
 const load = (k, fallback) => {
   try { return JSON.parse(localStorage.getItem(k)) || fallback } catch { return fallback }
@@ -188,7 +191,7 @@ const uploadToS3 = async (fileName, fileData, kbGroup, fileType) => {
 
   } catch (error) {
     console.error('S3 upload error:', error)
-    const fallbackPath = 's3://document-portal-storage-195932288857/' + kbGroup + '/' + fileName.replace(/\s+/g, '-').toLowerCase()
+    const fallbackPath = `s3://${S3_BUCKET}/` + kbGroup + '/' + fileName.replace(/\s+/g, '-').toLowerCase()
     console.warn('Using fallback S3 path:', fallbackPath)
     return fallbackPath
   }
