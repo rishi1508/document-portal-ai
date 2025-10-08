@@ -5,35 +5,35 @@ import { Bot, Brain, Zap, Shield } from 'lucide-react'
 
 
 const WelcomeScreen = () => {
-  const { currentKB, addMessage, setIsLoading } = useChat()
-  const kb = KNOWLEDGE_BASES[currentKB]
+ const { currentKB, addMessage, setIsLoading } = useChat()
+ const kb = KNOWLEDGE_BASES[currentKB]
 
 
-  const handlePromptClick = async (prompt) => {
-    // Add user message immediately
-    addMessage('user', prompt, [])
+ const handlePromptClick = async (prompt) => {
+ // Add user message immediately
+ addMessage('user', prompt, [])
 
 
-    // Show loading
-    setIsLoading(true)
+ // Show loading
+ setIsLoading(true)
 
 
-    // Simulate AI response
-    setTimeout(() => {
-      const mockResponse = getMockResponse(prompt)
-      addMessage('assistant', mockResponse.answer, mockResponse.sources)
-      setIsLoading(false)
-    }, 1500)
-  }
+ // Simulate AI response
+ setTimeout(() => {
+ const mockResponse = getMockResponse(prompt)
+ addMessage('assistant', mockResponse.answer, mockResponse.sources)
+ setIsLoading(false)
+ }, 1500)
+ }
 
 
-  const getMockResponse = (question) => {
-    const lowerQ = question.toLowerCase()
+ const getMockResponse = (question) => {
+ const lowerQ = question.toLowerCase()
 
 
-    if (lowerQ.includes('deployment') || lowerQ.includes('deploy')) {
-      return {
-        answer: `Based on our DevOps deployment guidelines, the deployment process consists of 7 main steps:
+ if (lowerQ.includes('deployment') || lowerQ.includes('deploy')) {
+ return {
+ answer: `Based on our DevOps deployment guidelines, the deployment process consists of 7 main steps:
 
 
 **1. Local Testing**
@@ -65,14 +65,14 @@ Monitor health checks, error rates, and application metrics for at least 2 hours
 
 
 Always have a rollback plan ready and notify the team via Slack before production deployments.`,
-        sources: ['s3://document-portal-storage/devops/deployment-guide.md']
-      }
-    }
+ sources: ['s3://document-portal-storage/devops/deployment-guide.md']
+ }
+ }
 
 
-    if (lowerQ.includes('password') || lowerQ.includes('security')) {
-      return {
-        answer: `According to our company security policy, here are the password requirements:
+ if (lowerQ.includes('password') || lowerQ.includes('security')) {
+ return {
+ answer: `According to our company security policy, here are the password requirements:
 
 
 **Password Requirements:**
@@ -94,14 +94,14 @@ Always have a rollback plan ready and notify the team via Slack before productio
 
 **Reporting Security Incidents:**
 If you suspect a security breach, immediately contact the Security team at security@company.com or call the hotline at ext. 911.`,
-        sources: ['s3://document-portal-storage/policies/security-policy.pdf']
-      }
-    }
+ sources: ['s3://document-portal-storage/policies/security-policy.pdf']
+ }
+ }
 
 
-    if (lowerQ.includes('rollback')) {
-      return {
-        answer: `Our rollback strategy includes the following procedures:
+ if (lowerQ.includes('rollback')) {
+ return {
+ answer: `Our rollback strategy includes the following procedures:
 
 
 **Pre-Deployment Preparation:**
@@ -127,14 +127,14 @@ If you suspect a security breach, immediately contact the Security team at secur
 • Maintain database migration reversibility
 • Use feature flags for gradual rollouts
 • Always have a rollback champion on duty during deployments`,
-        sources: ['s3://document-portal-storage/devops/deployment-guide.md']
-      }
-    }
+ sources: ['s3://document-portal-storage/devops/deployment-guide.md']
+ }
+ }
 
 
-    // Default: Not found in knowledge base
-    return {
-      answer: `I searched through our knowledge base but couldn't find specific information about "${question}".
+ // Default: Not found in knowledge base
+ return {
+ answer: `I searched through our knowledge base but couldn't find specific information about "${question}".
 
 
 This topic may not be documented yet in our system. Here's what I recommend:
@@ -153,74 +153,74 @@ This topic may not be documented yet in our system. Here's what I recommend:
 
 
 Would you like to ask about something else from our documentation?`,
-      sources: []
-    }
-  }
+ sources: []
+ }
+ }
 
 
-  return (
-    <div className="max-w-4xl mx-auto text-center w-full">
-      <div className="mb-6">
-        <div className="animate-float inline-block">
-          <Bot className="w-16 h-16 mx-auto text-primary-500 mb-4" />
-        </div>
-      </div>
+ return (
+ <div className="max-w-4xl mx-auto text-center w-full">
+ <div className="mb-6">
+ <div className="animate-float inline-block">
+ <Bot className="w-16 h-16 mx-auto text-primary-500 mb-4" />
+ </div>
+ </div>
 
 
-      <h2 className="text-3xl font-bold text-white mb-3">
-        Welcome to DocuMind AI
-      </h2>
-      <p className="text-base text-text-secondary mb-8">
-        Your intelligent document assistant powered by AWS Bedrock
-      </p>
+ <h2 className="text-3xl font-bold text-text-primary mb-3">
+ Welcome to DocuMind AI
+ </h2>
+ <p className="text-base text-text-secondary mb-8">
+ Your intelligent document assistant powered by AWS Bedrock
+ </p>
 
 
-      {kb && kb.prompts && kb.prompts.length > 0 && (
-        <div className="mb-8">
-          <h3 className="text-sm text-text-secondary mb-3">Try asking:</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {kb.prompts.map((prompt, index) => (
-              <button
-                key={index}
-                onClick={() => handlePromptClick(prompt)}
-                className="bg-dark-secondary border border-dark-tertiary rounded-lg p-4 text-left hover:bg-dark-hover hover:border-primary-500 transition-all hover:-translate-y-0.5"
-              >
-                <div className="flex items-start gap-3">
-                  <div className="w-8 h-8 bg-primary-500/20 rounded-lg flex items-center justify-center flex-shrink-0">
-                    <Brain className="w-4 h-4 text-primary-500" />
-                  </div>
-                  <span className="text-text-primary text-sm font-medium">{prompt}</span>
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+ {kb && kb.prompts && kb.prompts.length > 0 && (
+ <div className="mb-8">
+ <h3 className="text-sm text-text-secondary mb-3">Try asking:</h3>
+ <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+ {kb.prompts.map((prompt, index) => (
+ <button
+ key={index}
+ onClick={() => handlePromptClick(prompt)}
+ className="bg-dark-secondary border border-dark-tertiary rounded-lg p-4 text-left hover:bg-dark-hover hover:border-primary-500 transition-all hover:-translate-y-0.5"
+ >
+ <div className="flex items-start gap-3">
+ <div className="w-8 h-8 bg-primary-500/20 rounded-lg flex items-center justify-center flex-shrink-0">
+ <Brain className="w-4 h-4 text-primary-500" />
+ </div>
+ <span className="text-text-primary text-sm font-medium">{prompt}</span>
+ </div>
+ </button>
+ ))}
+ </div>
+ </div>
+ )}
 
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-dark-secondary border border-dark-tertiary rounded-lg p-4">
-          <Brain className="w-6 h-6 text-primary-500 mb-2 mx-auto" />
-          <h4 className="font-semibold text-white text-sm mb-1">AI-Powered Search</h4>
-          <p className="text-xs text-text-secondary">Natural language understanding</p>
-        </div>
+ <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+ <div className="bg-dark-secondary border border-dark-tertiary rounded-lg p-4">
+ <Brain className="w-6 h-6 text-primary-500 mb-2 mx-auto" />
+ <h4 className="font-semibold text-text-primary text-sm mb-1">AI-Powered Search</h4>
+ <p className="text-xs text-text-secondary">Natural language understanding</p>
+ </div>
 
 
-        <div className="bg-dark-secondary border border-dark-tertiary rounded-lg p-4">
-          <Zap className="w-6 h-6 text-yellow-500 mb-2 mx-auto" />
-          <h4 className="font-semibold text-white text-sm mb-1">Instant Answers</h4>
-          <p className="text-xs text-text-secondary">Get responses in seconds</p>
-        </div>
+ <div className="bg-dark-secondary border border-dark-tertiary rounded-lg p-4">
+ <Zap className="w-6 h-6 text-yellow-500 mb-2 mx-auto" />
+ <h4 className="font-semibold text-text-primary text-sm mb-1">Instant Answers</h4>
+ <p className="text-xs text-text-secondary">Get responses in seconds</p>
+ </div>
 
 
-        <div className="bg-dark-secondary border border-dark-tertiary rounded-lg p-4">
-          <Shield className="w-6 h-6 text-secondary-500 mb-2 mx-auto" />
-          <h4 className="font-semibold text-white text-sm mb-1">Secure & Private</h4>
-          <p className="text-xs text-text-secondary">Your data stays protected</p>
-        </div>
-      </div>
-    </div>
-  )
+ <div className="bg-dark-secondary border border-dark-tertiary rounded-lg p-4">
+ <Shield className="w-6 h-6 text-secondary-500 mb-2 mx-auto" />
+ <h4 className="font-semibold text-text-primary text-sm mb-1">Secure & Private</h4>
+ <p className="text-xs text-text-secondary">Your data stays protected</p>
+ </div>
+ </div>
+ </div>
+ )
 }
 
 
