@@ -2,151 +2,171 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
 /* stylelint-enable at-rule-no-unknown */
 
 @layer base {
-  :root {
-    --bg-primary: #0f1117;
-    --bg-secondary: #1a1d29;
-    --bg-tertiary: #23263a;
-    --bg-hover: #2d3148;
-    --text-primary: #fff;
-    --text-secondary: #9ca3af;
-    --text-muted: #6b7280;
-    --border-color: #2d3148;
-  }
+ :root {
+ --bg-primary: #0f1117;
+ --bg-secondary: #1a1d29;
+ --bg-tertiary: #23263a;
+ --bg-hover: #2d3148;
+ --text-primary: #fff;
+ --text-secondary: #9ca3af;
+ --text-muted: #6b7280;
+ --border-color: #2d3148;
+ }
 
-  /* Light mode variables */
-  :root.light {
-    --bg-primary: #f9fafb;
-    --bg-secondary: #fff;
-    --bg-tertiary: #f3f4f6;
-    --bg-hover: #e5e7eb;
-    --text-primary: #1f2937;
-    --text-secondary: #6b7280;
-    --text-muted: #9ca3af;
-    --border-color: #d1d5db;
-  }
+ /* Light mode variables */
+ :root.light {
+ --bg-primary: #f8fafc; /* slate-50 */
+ --bg-secondary: #fff; /* white */
+ --bg-tertiary: #f1f5f9; /* slate-100 */
+ --bg-hover: #e2e8f0; /* slate-200 */
+ --text-primary: #0f172a; /* slate-900 */
+ --text-secondary: #334155; /* slate-700 */
+ --text-muted: #64748b; /* slate-500 */
+ --border-color: #e2e8f0; /* slate-200 */
+ }
 
-  * {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-  }
+ * {
+ margin: 0;
+ padding: 0;
+ box-sizing: border-box;
+ }
 
-  html {
-    font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  }
+ html {
+ font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+ }
 
-  body {
-    background-color: var(--bg-primary);
-    color: var(--text-primary);
-    margin: 0;
-    padding: 0;
-    overflow-x: hidden;
-  }
+ body {
+ background-color: var(--bg-primary);
+ color: var(--text-primary);
+ margin: 0;
+ padding: 0;
+ overflow-x: hidden;
+ }
 
-  #root {
-    min-height: 100vh;
-    background-color: var(--bg-primary);
-  }
+ #root {
+ min-height: 100vh;
+ background-color: var(--bg-primary);
+ }
 }
 
 /* Custom utility classes that use CSS variables */
 @layer utilities {
-  .bg-dark-primary {
-    background-color: var(--bg-primary);
-  }
+ .bg-dark-primary {
+ background-color: var(--bg-primary);
+ }
 
-  .bg-dark-secondary {
-    background-color: var(--bg-secondary);
-  }
+ .bg-dark-secondary {
+ background-color: var(--bg-secondary);
+ }
 
-  .bg-dark-tertiary {
-    background-color: var(--bg-tertiary);
-  }
+ .bg-dark-tertiary {
+ background-color: var(--bg-tertiary);
+ }
 
-  .bg-dark-hover {
-    background-color: var(--bg-hover);
-  }
+ .bg-dark-hover {
+ background-color: var(--bg-hover);
+ }
 
-  .text-text-primary {
-    color: var(--text-primary);
-  }
+ .text-text-primary {
+ color: var(--text-primary);
+ }
 
-  .text-text-secondary {
-    color: var(--text-secondary);
-  }
+ .text-text-secondary {
+ color: var(--text-secondary);
+ }
 
-  .text-text-muted {
-    color: var(--text-muted);
-  }
+ .text-text-muted {
+ color: var(--text-muted);
+ }
 
-  .border-dark-tertiary {
-    border-color: var(--border-color);
-  }
+ .border-dark-tertiary {
+ border-color: var(--border-color);
+ }
 
-  .border-dark-hover {
-    border-color: var(--bg-hover);
-  }
+ .border-dark-hover {
+ border-color: var(--bg-hover);
+ }
 
-  .animate-slide-in {
-    animation: slide-in 0.3s ease-out;
-  }
+ .animate-slide-in {
+ animation: slide-in 0.3s ease-out;
+ }
 
-  .animate-float {
-    animation: float 3s ease-in-out infinite;
-  }
+ .animate-float {
+ animation: float 3s ease-in-out infinite;
+ }
 
-  @keyframes slide-in {
-    0% {
-      opacity: 0;
-      transform: translateY(20px);
-    }
+ .animate-slide-down {
+ animation: slide-down 0.2s ease-out;
+ }
 
-    100% {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-
-  @keyframes float {
-    0%,
-    100% {
-      transform: translateY(0);
-    }
-
-    50% {
-      transform: translateY(-20px);
-    }
-  }
-
-  @keyframes float {
-  0%, 100% {
-    transform: translateY(0px);
-  }
-  50% {
-    transform: translateY(-10px);
-  }
+ .elevation-1 {
+  box-shadow: 0 1px 2px rgb(2 6 23 / 4%), 0 1px 1px rgb(2 6 23 / 2%);
 }
 
-.animate-float {
-  animation: float 3s ease-in-out infinite;
+.elevation-2 {
+  box-shadow: 0 4px 12px rgb(2 6 23 / 6%), 0 2px 6px rgb(2 6 23 / 4%);
 }
 
-@keyframes slide-down {
-  from {
-    opacity: 0;
-    transform: translateY(-10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+.ring-surface {
+  box-shadow: 0 0 0 1px var(--border-color) inset;
 }
 
-.animate-slide-down {
-  animation: slide-down 0.2s ease-out;
+.focus-ring {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px rgb(79 70 229 / 45%);
 }
+
+ .placeholder-muted::placeholder {
+ color: var(--text-muted);
+ opacity: 1;
+ }
+
+ @keyframes slide-in {
+ 0% {
+ opacity: 0;
+ transform: translateY(20px);
+ }
+
+ 100% {
+ opacity: 1;
+ transform: translateY(0);
+ }
+ }
+
+ @keyframes float {
+ 0%,
+ 100% {
+ transform: translateY(0);
+ }
+
+ 50% {
+ transform: translateY(-10px);
+ }
+ }
+
+ @keyframes slide-down {
+ from {
+ opacity: 0;
+ transform: translateY(-10px);
+ }
+
+ to {
+ opacity: 1;
+ transform: translateY(0);
+ }
+ }
+}
+
+/* Hide scrollbar but keep functionality */
+.scrollbar-hide {
+ -ms-overflow-style: none;
+ scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+ display: none;
 }
