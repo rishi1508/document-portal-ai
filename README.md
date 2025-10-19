@@ -4,13 +4,13 @@ A modern, production-ready document management system with AI-powered search usi
 
 ## Features
 
-- 📄 **Bulk Document Upload** - Upload up to 50 documents at once with auto-generated titles
-- 🤖 **AI-Powered Search** - Query documents using natural language via AWS Bedrock
-- 👥 **Department-Based Access Control** - Role-based permissions for different teams
-- ✅ **Approval Workflow** - Admin approval system for document uploads
-- 🔍 **Knowledge Base Integration** - Automatic sync with AWS Bedrock Knowledge Bases
-- 📊 **Real-time Pagination** - Handle large document libraries efficiently
-- 🎨 **Modern Dark UI** - Beautiful, responsive interface with Tailwind CSS
+- **Bulk Document Upload** - Upload up to 50 documents at once with auto-generated titles
+- **AI-Powered Search** - Query documents using natural language via AWS Bedrock
+- **Department-Based Access Control** - Role-based permissions for different teams
+- **Approval Workflow** - Admin approval system for document uploads
+- **Knowledge Base Integration** - Automatic sync with AWS Bedrock Knowledge Bases
+- **Real-time Pagination** - Handle large document libraries efficiently
+- **Modern Dark UI** - Beautiful, responsive interface with Tailwind CSS
 
 ## Architecture
 
@@ -110,28 +110,6 @@ Use the provided `create_approval_api_endpoints.sh` script or manually create en
 
 \`\`\`bash
 npm run dev
-\`\`\`
-
-## Project Structure
-
-\`\`\`
-document-portal-react/
-├── src/
-│   ├── components/
-│   │   ├── layout/         # Sidebar, Header, InputArea
-│   │   └── modals/         # Upload, Approvals modals
-│   ├── contexts/           # React contexts (Auth, Chat, etc.)
-│   ├── services/           # API services
-│   ├── config/             # Knowledge base configuration
-│   └── App.jsx
-├── backend/                # Lambda functions (Python)
-│   ├── lambda_approvals_bulk.py
-│   ├── lambda_list_pending.py
-│   ├── lambda_approve_request.py
-│   ├── lambda_reject_request.py
-│   └── lambda_query_bedrock.py
-├── .env.example           # Environment variables template
-└── README.md
 \`\`\`
 
 ## Environment Variables
