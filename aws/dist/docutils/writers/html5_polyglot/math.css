@@ -1,25 +1,25 @@
 /*
-*   math2html: convert LaTeX equations to HTML output.
+* math2html: convert LaTeX equations to HTML output.
 *
-*   Copyright (C) 2009,2010 Alex Fernández
-*                 2021      Günter Milde
+* Copyright (C) 2009,2010 Alex Fernández
+* 2021 Günter Milde
 *
-*   Released under the terms of the `2-Clause BSD license'_, in short:
-*   Copying and distribution of this file, with or without modification,
-*   are permitted in any medium without royalty provided the copyright
-*   notice and this notice are preserved.
-*   This file is offered as-is, without any warranty.
+* Released under the terms of the `2-Clause BSD license'_, in short:
+* Copying and distribution of this file, with or without modification,
+* are permitted in any medium without royalty provided the copyright
+* notice and this notice are preserved.
+* This file is offered as-is, without any warranty.
 *
 * .. _2-Clause BSD license: http://www.spdx.org/licenses/BSD-2-Clause
 *
-*   Based on eLyXer: convert LyX source files to HTML output.
-*   http://elyxer.nongnu.org/
+* Based on eLyXer: convert LyX source files to HTML output.
+* http://elyxer.nongnu.org/
 *
 *
 * CSS file for LaTeX formulas.
 *
 * References: http://www.zipcon.net/~swhite/docs/math/math.html
-*             http://www.cs.tut.fi/~jkorpela/math/
+* http://www.cs.tut.fi/~jkorpela/math/
 */
 
 /* Formulas */
@@ -272,13 +272,13 @@ span.downstackrel {
 .formula {
 	font-family: STIX, "DejaVu Serif", "DejaVu Math TeX Gyre", serif;
 }
-span.radical,   /* ensure correct size of square-root sign */
+span.radical, /* ensure correct size of square-root sign */
 span.integral { /* upright integral signs for better alignment of indices */
 	font-family: "STIXIntegralsUp", STIX;
 	/* font-size: 115%; match apparent size with DejaVu */
 }
 span.bracket {
-  /* some "STIX" and "DejaVu Math TeX Gyre" bracket pieces don't fit */
+ /* some "STIX" and "DejaVu Math TeX Gyre" bracket pieces don't fit */
 	font-family: "DejaVu Serif", serif;
 }
 span.mathsf, span.textsf {
@@ -305,8 +305,8 @@ span.scriptfont {
 	font-style: italic;
 }
 span.mathscr {
-  font-family: MathJax_Script, rsfs10,  cursive;
-  font-style: italic;
+ font-family: MathJax_Script, rsfs10, cursive;
+ font-style: italic;
 }
 span.textsc {
 	font-variant: small-caps;

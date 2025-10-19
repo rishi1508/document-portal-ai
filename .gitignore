@@ -48,6 +48,7 @@ ENV/
 # AWS
 .aws-sam/
 samconfig.toml
+./document-portal-dev_accessKeys.csv
 
 # Misc
 .cache/

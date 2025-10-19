@@ -4,7 +4,7 @@
 html, body {margin: 0; padding: 0;}
 body {background: white; color: black;}
 /* Replace the background style above with the style below (and again for
-   div#header) for a graphic: */
+ div#header) for a graphic: */
 /* background: white url(bodybg.gif) -16px 0 no-repeat; */
 :link, :visited {text-decoration: none; color: #00C;}
 #controls :active {color: #88A !important;}
@@ -30,29 +30,29 @@ div#footer {font-size: 0.5em; font-weight: bold; padding: 1em 0;}
 
 .slide {font-size: 1.2em;}
 .slide h1 {position: absolute; top: 0.45em; z-index: 1;
-  margin: 0; padding-left: 0.7em; white-space: nowrap;
-  font: bold 150% sans-serif; color: #DDE; background: #005;}
+ margin: 0; padding-left: 0.7em; white-space: nowrap;
+ font: bold 150% sans-serif; color: #DDE; background: #005;}
 .slide h2 {font: bold 120%/1em sans-serif; padding-top: 0.5em;}
 .slide h3 {font: bold 100% sans-serif; padding-top: 0.5em;}
 h1 abbr {font-variant: small-caps;}
 
 div#controls {position: absolute; left: 50%; bottom: 0;
-  width: 50%; text-align: right; font: bold 0.9em sans-serif;}
+ width: 50%; text-align: right; font: bold 0.9em sans-serif;}
 html>body div#controls {position: fixed; padding: 0 0 1em 0; top: auto;}
 div#controls form {position: absolute; bottom: 0; right: 0; width: 100%;
-  margin: 0; padding: 0;}
+ margin: 0; padding: 0;}
 #controls #navLinks a {padding: 0; margin: 0 0.5em;
-  background: #005; border: none; color: #779; cursor: pointer;}
+ background: #005; border: none; color: #779; cursor: pointer;}
 #controls #navList {height: 1em;}
 #controls #navList #jumplist {position: absolute; bottom: 0; right: 0;
-  background: #DDD; color: #227;}
+ background: #DDD; color: #227;}
 
 #currentSlide {text-align: center; font-size: 0.5em; color: #449;
-  font-family: sans-serif; font-weight: bold;}
+ font-family: sans-serif; font-weight: bold;}
 
 #slide0 {padding-top: 1.5em}
 #slide0 h1 {position: static; margin: 1em 0 0; padding: 0; color: #000;
-  font: bold 2em sans-serif; white-space: normal; background: transparent;}
+ font: bold 2em sans-serif; white-space: normal; background: transparent;}
 #slide0 h2 {font: bold italic 1em sans-serif; margin: 0.25em;}
 #slide0 h3 {margin-top: 1.5em; font-size: 1.5em;}
 #slide0 h4 {margin-top: 0; font-size: 1em;}
@@ -64,7 +64,7 @@ html>body .external {border-bottom: none;}
 .external:after {content: " \274F"; font-size: smaller; color: #77B;}
 
 .incremental, .incremental *, .incremental *:after {visibility: visible;
-  color: white; border: 0;}
+ color: white; border: 0;}
 img.incremental {visibility: hidden;}
 .slide .current {color: green;}
 
