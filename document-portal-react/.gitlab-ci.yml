@@ -1,6 +1,5 @@
 variables:
-  DOCKER_REGISTRY: registry.gitlab.com
-  DOCKER_IMAGE: ${DOCKER_REGISTRY}/your-group/documind-ai/documind-ui
+  DOCKER_IMAGE: ${ECR_REGISTRY}/devops/documind-ui
   CONTAINER_NAME: documind-portal
 
 stages:
@@ -8,7 +7,7 @@ stages:
   - build
   - deploy
 
-# Test stage (optional - lint checks)
+# Test stage
 test:
   stage: test
   image: node:20-alpine
@@ -22,14 +21,18 @@ test:
     - develop
     - main
 
-# Build Docker image
+# Build Docker image and push to ECR
 build:
   stage: build
   image: docker:latest
   services:
     - docker:dind
   before_script:
-    - echo $CI_REGISTRY_PASSWORD | docker login -u $CI_REGISTRY_USER --password-stdin $CI_REGISTRY
+    # Install AWS CLI
+    - apk add --no-cache python3 py3-pip
+    - pip3 install awscli
+    # Login to ECR
+    - aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
   script:
     - cd document-portal-react
     - docker build -t ${DOCKER_IMAGE}:${CI_COMMIT_SHORT_SHA} .
@@ -41,7 +44,7 @@ build:
     - develop
     - main
 
-# Deploy to abhedya-cloud production
+# Deploy to production
 deploy:production:
   stage: deploy
   image: alpine:latest
@@ -54,7 +57,11 @@ deploy:production:
     - ssh-keyscan ${DEPLOY_HOST} >> ~/.ssh/known_hosts
   script:
     - |
-      ssh ${DEPLOY_USER}@${DEPLOY_HOST} << 'ENDSSH'
+      ssh ${DEPLOY_USER}@${DEPLOY_HOST} << ENDSSH
+        # Login to ECR on deployment server
+        aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+        
+        # Pull and deploy
         docker pull ${DOCKER_IMAGE}:${CI_COMMIT_SHORT_SHA}
         docker stop ${CONTAINER_NAME} || true
         docker rm ${CONTAINER_NAME} || true
