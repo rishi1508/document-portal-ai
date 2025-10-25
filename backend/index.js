@@ -113,30 +113,40 @@ app.post("/api/documents", (req, res) => {
       // 3. Chunk the text
       const chunks = chunkText(text, 1500, 200);
       console.log(`Created ${chunks.length} chunks for ${fileObj.name}`);
+      let insertCount = 0;
 
       // 4. Generate embeddings and store each chunk
       for (let i = 0; i < chunks.length; i++) {
-        const embedding = await getEmbedding(chunks[i]);
-        const chunkId = `${s3Key}#chunk${i}`;
-        
-        await collection.add({
-          ids: [chunkId],
-          embeddings: [embedding],
-          metadatas: [{
-            title: fileObj.name,
-            s3Key,
-            chunkIndex: i,
-            totalChunks: chunks.length
-          }],
-          documents: [chunks[i]],
-        });
+        try {
+          const embedding = await getEmbedding(chunks[i]);
+          const chunkId = `${s3Key}#chunk${i}`;
+
+          await collection.add({
+            ids: [chunkId],
+            embeddings: [embedding],
+            metadatas: [{
+              title: fileObj.name,
+              s3Key,
+              chunkIndex: i,
+              totalChunks: chunks.length
+            }],
+            documents: [chunks[i]],
+          });
+          insertCount++;
+        } catch (err) {
+          console.error(`Chunk add failed for chunk ${i}:`, err.message);
+        }
       }
+
+      // Print all doc titles in Chroma after add
+      const allDocs = await collection.get();
+      console.log("Current ChromaDB titles/keys:", (allDocs.metadatas || []).map(x => x && x.title).filter(Boolean).slice(0, 50));
 
       res.json({
         id: s3Key,
         s3Url: `s3://${S3_BUCKET}/${s3Key}`,
         filename: fileObj.name,
-        chunksCreated: chunks.length
+        chunksCreated: insertCount
       });
     } catch (error) {
       console.error("Upload/Index error:", error);
@@ -168,7 +178,7 @@ app.get("/api/documents", async (req, res) => {
 app.post('/api/chat', async (req, res) => {
   try {
     const { query } = req.body;
-    
+
     // 1. Detect greetings
     const greetings = ['hi', 'hello', 'hey', 'good morning', 'good afternoon'];
     if (greetings.some(g => query.toLowerCase().includes(g))) {
@@ -178,18 +188,18 @@ app.post('/api/chat', async (req, res) => {
         sources: []
       });
     }
-    
+
     // 2. Perform RAG retrieval
     const embedding = await getEmbedding(query);
     const results = await collection.query({
       queryEmbeddings: [embedding],
       nResults: 10
     });
-    
+
     // 3. Check if relevant documents found (similarity threshold)
-    const hasRelevantDocs = results.distances && results.distances[0] && 
+    const hasRelevantDocs = results.distances && results.distances[0] &&
                             results.distances[0].some(d => d < 0.7); // Adjust threshold
-    
+
     if (!hasRelevantDocs || !results.documents[0] || results.documents[0].length === 0) {
       // 4. Fallback to general knowledge
       const generalAnswer = await getGeneralAnswer(query);
@@ -199,33 +209,33 @@ app.post('/api/chat', async (req, res) => {
         sources: []
       });
     }
-    
+
     // 5. Standard RAG response
     const context = results.documents.flat().join('\n\n---\n\n').slice(0, 8000);
     const answer = await runGroqRAG(query, context);
-    
+
     // Extract sources
     const uniqueSources = new Map();
     if (results.metadatas && results.metadatas[0]) {
       results.metadatas[0].forEach(meta => {
         if (!uniqueSources.has(meta.s3Key)) {
-          uniqueSources.set(meta.s3Key, 
+          uniqueSources.set(meta.s3Key,
             `${meta.title || 'Unknown'}|${meta.s3Key || ''}|${meta.department || ''}`
           );
         }
       });
     }
-    
-    res.json({ 
+
+    res.json({
       success: true,
       answer,
       sources: Array.from(uniqueSources.values())
     });
   } catch (err) {
     console.error('Chat error:', err);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: err.message 
+      error: err.message
     });
   }
 });
@@ -233,17 +243,17 @@ app.post('/api/chat', async (req, res) => {
 // General knowledge fallback using Groq without context
 async function getGeneralAnswer(question) {
   const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-  
+
   const chat = await groq.chat.completions.create({
-    messages: [{ 
-      role: "user", 
-      content: `Answer this question concisely: ${question}` 
+    messages: [{
+      role: "user",
+      content: `Answer this question concisely: ${question}`
     }],
     model: MODEL_ID,
     max_tokens: 256,
     temperature: 0.5
   });
-  
+
   return chat.choices[0]?.message?.content || "I couldn't find an answer.";
 }
 
@@ -261,6 +271,7 @@ async function getEmbedding(text) {
         model: "nomic-embed-text",
         prompt: text.slice(0, 2048),
       }),
+      timeout: 30000
     });
 
     const data = await response.json();
@@ -274,7 +285,7 @@ async function getEmbedding(text) {
 // ----------- Utility: Groq RAG Generation ----------- //
 async function runGroqRAG(question, context) {
   const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-  
+
   const prompt = `You are a helpful assistant answering questions based on the provided context.
 
 Context:
@@ -296,7 +307,7 @@ Answer:`;
     max_tokens: 512,
     temperature: 0.3  // Lower temperature for more factual responses
   });
-  
+
   return chat.choices[0]?.message?.content || "No answer generated.";
 }
 
@@ -317,21 +328,21 @@ app.get("/api/health", async (req, res) => {
 app.post('/api/index', async (req, res) => {
   try {
     const { s3Key } = req.body;
-    
+
     if (!s3Key) {
       return res.status(400).json({ error: 'Missing s3Key' });
     }
-    
+
     console.log(`Indexing document: ${s3Key}`);
-    
+
     // Download file from S3
     const file = await s3.getObject({ Bucket: S3_BUCKET, Key: s3Key }).promise();
     const buffer = file.Body;
-    
+
     // Extract text
     let text = '';
     const ext = s3Key.split('.').pop().toLowerCase();
-    
+
     if (ext === 'pdf') {
       text = (await pdfParse(buffer)).text;
     } else if (ext === 'md' || ext === 'txt') {
@@ -339,46 +350,56 @@ app.post('/api/index', async (req, res) => {
     } else {
       return res.status(400).json({ error: 'Unsupported file type' });
     }
-    
+
     if (!text || text.trim().length < 10) {
       return res.status(400).json({ error: 'No text extracted from document' });
     }
-    
+
     // Extract metadata
     const department = s3Key.split('/')[0];
     const title = s3Key.split('/').pop();
-    
+
     // Chunk the text
     const chunks = chunkText(text, 1500, 200);
     console.log(`Created ${chunks.length} chunks for ${title}`);
-    
+    let insertCount = 0;
+
     // Store each chunk with embedding
     for (let i = 0; i < chunks.length; i++) {
-      const embedding = await getEmbedding(chunks[i]);
-      const chunkId = `${s3Key}#chunk${i}`;
-      
-      await collection.add({
-        ids: [chunkId],
-        embeddings: [embedding],
-        metadatas: [{
-          title,
-          s3Key,
-          department,
-          chunkIndex: i,
-          totalChunks: chunks.length,
-          lastModified: new Date().toISOString()
-        }],
-        documents: [chunks[i]]
-      });
+      try {
+        const embedding = await getEmbedding(chunks[i]);
+        const chunkId = `${s3Key}#chunk${i}`;
+
+        await collection.add({
+          ids: [chunkId],
+          embeddings: [embedding],
+          metadatas: [{
+            title,
+            s3Key,
+            department,
+            chunkIndex: i,
+            totalChunks: chunks.length,
+            lastModified: new Date().toISOString()
+          }],
+          documents: [chunks[i]]
+        });
+        insertCount++;
+      } catch (err) {
+        console.error(`Chunk add failed for chunk ${i}:`, err.message);
+      }
     }
-    
-    console.log(`✓ Indexed: ${s3Key} (${chunks.length} chunks)`);
-    
-    res.json({ 
+
+    // Print all doc titles in Chroma after add
+    const allDocs = await collection.get();
+    console.log("Current ChromaDB titles/keys:", (allDocs.metadatas || []).map(x => x && x.title).filter(Boolean).slice(0, 50));
+
+    console.log(`✓ Indexed: ${s3Key} (${insertCount} chunks)`);
+
+    res.json({
       success: true,
       message: 'Document indexed successfully',
       s3Key,
-      chunksCreated: chunks.length
+      chunksCreated: insertCount
     });
   } catch (err) {
     console.error('Index error:', err);
