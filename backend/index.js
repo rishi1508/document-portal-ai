@@ -169,35 +169,42 @@ app.post('/api/chat', async (req, res) => {
   try {
     const { query } = req.body;
     
-    if (!query || !query.trim()) {
-      return res.json({ 
+    // 1. Detect greetings
+    const greetings = ['hi', 'hello', 'hey', 'good morning', 'good afternoon'];
+    if (greetings.some(g => query.toLowerCase().includes(g))) {
+      return res.json({
         success: true,
-        answer: "Please ask a question.",
+        answer: "Hello! I'm your document assistant. I can help you find information from your company policies and documents. What would you like to know?",
         sources: []
       });
     }
     
+    // 2. Perform RAG retrieval
     const embedding = await getEmbedding(query);
     const results = await collection.query({
       queryEmbeddings: [embedding],
-      nResults: 10  // Retrieve top 10 chunks
+      nResults: 10
     });
     
-    console.log(`Retrieved ${results.documents[0]?.length || 0} chunks for query`);
+    // 3. Check if relevant documents found (similarity threshold)
+    const hasRelevantDocs = results.distances && results.distances[0] && 
+                            results.distances[0].some(d => d < 0.7); // Adjust threshold
     
-    if (!results.documents || !results.documents[0] || results.documents[0].length === 0) {
-      return res.json({ 
+    if (!hasRelevantDocs || !results.documents[0] || results.documents[0].length === 0) {
+      // 4. Fallback to general knowledge
+      const generalAnswer = await getGeneralAnswer(query);
+      return res.json({
         success: true,
-        answer: "No relevant documents found in the knowledge base.",
+        answer: `⚠️ This information was not found in your documents.\n\nGeneral answer: ${generalAnswer}`,
         sources: []
       });
     }
     
-    // Combine retrieved chunks with more context
+    // 5. Standard RAG response
     const context = results.documents.flat().join('\n\n---\n\n').slice(0, 8000);
     const answer = await runGroqRAG(query, context);
     
-    // Extract unique sources (deduplicate by s3Key)
+    // Extract sources
     const uniqueSources = new Map();
     if (results.metadatas && results.metadatas[0]) {
       results.metadatas[0].forEach(meta => {
@@ -222,6 +229,23 @@ app.post('/api/chat', async (req, res) => {
     });
   }
 });
+
+// General knowledge fallback using Groq without context
+async function getGeneralAnswer(question) {
+  const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+  
+  const chat = await groq.chat.completions.create({
+    messages: [{ 
+      role: "user", 
+      content: `Answer this question concisely: ${question}` 
+    }],
+    model: MODEL_ID,
+    max_tokens: 256,
+    temperature: 0.5
+  });
+  
+  return chat.choices[0]?.message?.content || "I couldn't find an answer.";
+}
 
 // ----------- Utility: Embedding ----------- //
 async function getEmbedding(text) {
