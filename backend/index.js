@@ -1,7 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const fs = require("fs");
-const PDFParser = require("pdf-parse");
+const pdfParse = require("pdf-parse");
 const formidable = require("formidable");
 const AWS = require("aws-sdk");
 const { ChromaClient } = require("chromadb");
@@ -19,12 +19,31 @@ app.use(cors());
 app.use(express.json());
 
 AWS.config.update({ region: AWS_REGION });
-// For AWS credentials, rely on env vars or local AWS config/CLI setup
 const s3 = new AWS.S3();
+
+// ========== TEXT CHUNKING FUNCTION ========== //
+function chunkText(text, chunkSize = 1500, overlap = 200) {
+  const chunks = [];
+  let start = 0;
+  
+  while (start < text.length) {
+    const end = Math.min(start + chunkSize, text.length);
+    const chunk = text.substring(start, end).trim();
+    
+    if (chunk.length > 0) {
+      chunks.push(chunk);
+    }
+    
+    start += (chunkSize - overlap);
+    
+    if (start >= text.length) break;
+  }
+  
+  return chunks.length > 0 ? chunks : [text];
+}
 
 class NoopEmbeddingFunction {
   async generate(texts) {
-    // This won't be called since we provide embeddings explicitly
     return texts.map(() => Array(768).fill(0));
   }
 }
@@ -79,7 +98,7 @@ app.post("/api/documents", (req, res) => {
       // 2. Extract text for embedding
       let text = "";
       if (ext === "pdf") {
-        text = (await PDFParser(buffer)).text;
+        text = (await pdfParse(buffer)).text;
       } else if (
         ext === "md" ||
         ext === "txt" ||
@@ -91,23 +110,36 @@ app.post("/api/documents", (req, res) => {
         text = "[Binary file]; indexing skipped";
       }
 
-      // 3. Get embedding (for demo, random vector is used; in prod use real embedding model)
-      const embedding = await getEmbedding(text);
+      // 3. Chunk the text
+      const chunks = chunkText(text, 1500, 200);
+      console.log(`Created ${chunks.length} chunks for ${fileObj.name}`);
 
-      // 4. Store in ChromaDB with explicit embedding
-      await collection.add({
-        ids: [s3Key],
-        embeddings: [embedding],
-        metadatas: [{ title: fileObj.name, s3Key }],
-        documents: [text],
-      });
+      // 4. Generate embeddings and store each chunk
+      for (let i = 0; i < chunks.length; i++) {
+        const embedding = await getEmbedding(chunks[i]);
+        const chunkId = `${s3Key}#chunk${i}`;
+        
+        await collection.add({
+          ids: [chunkId],
+          embeddings: [embedding],
+          metadatas: [{
+            title: fileObj.name,
+            s3Key,
+            chunkIndex: i,
+            totalChunks: chunks.length
+          }],
+          documents: [chunks[i]],
+        });
+      }
 
       res.json({
         id: s3Key,
         s3Url: `s3://${S3_BUCKET}/${s3Key}`,
         filename: fileObj.name,
+        chunksCreated: chunks.length
       });
     } catch (error) {
+      console.error("Upload/Index error:", error);
       res.status(500).json({ error: error.message });
     }
   });
@@ -148,31 +180,39 @@ app.post('/api/chat', async (req, res) => {
     const embedding = await getEmbedding(query);
     const results = await collection.query({
       queryEmbeddings: [embedding],
-      nResults: 10
+      nResults: 10  // Retrieve top 10 chunks
     });
+    
+    console.log(`Retrieved ${results.documents[0]?.length || 0} chunks for query`);
     
     if (!results.documents || !results.documents[0] || results.documents[0].length === 0) {
       return res.json({ 
         success: true,
-        answer: "No relevant documents found. The knowledge base may be empty.",
+        answer: "No relevant documents found in the knowledge base.",
         sources: []
       });
     }
     
-    const context = results.documents.flat().join('\n---\n').slice(0, 6000);
+    // Combine retrieved chunks with more context
+    const context = results.documents.flat().join('\n\n---\n\n').slice(0, 8000);
     const answer = await runGroqRAG(query, context);
     
-    // Extract sources as strings (format: "title|s3Key|department")
-    const sources = (results.metadatas && results.metadatas[0]) 
-      ? results.metadatas[0].map(meta => 
-          `${meta.title || 'Unknown'}|${meta.s3Key || ''}|${meta.department || ''}`
-        )
-      : [];
+    // Extract unique sources (deduplicate by s3Key)
+    const uniqueSources = new Map();
+    if (results.metadatas && results.metadatas[0]) {
+      results.metadatas[0].forEach(meta => {
+        if (!uniqueSources.has(meta.s3Key)) {
+          uniqueSources.set(meta.s3Key, 
+            `${meta.title || 'Unknown'}|${meta.s3Key || ''}|${meta.department || ''}`
+          );
+        }
+      });
+    }
     
     res.json({ 
       success: true,
       answer,
-      sources
+      sources: Array.from(uniqueSources.values())
     });
   } catch (err) {
     console.error('Chat error:', err);
@@ -183,11 +223,10 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
-
-// ----------- Utility: Embedding Stub ----------- //
+// ----------- Utility: Embedding ----------- //
 async function getEmbedding(text) {
   if (!text || text.trim().length === 0) {
-    return Array(768).fill(0); // nomic-embed-text outputs 768-dim vectors
+    return Array(768).fill(0);
   }
 
   try {
@@ -196,7 +235,7 @@ async function getEmbedding(text) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         model: "nomic-embed-text",
-        prompt: text.slice(0, 2048), // Limit input length
+        prompt: text.slice(0, 2048),
       }),
     });
 
@@ -211,13 +250,30 @@ async function getEmbedding(text) {
 // ----------- Utility: Groq RAG Generation ----------- //
 async function runGroqRAG(question, context) {
   const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-  const prompt = `Context:\n${context}\n\nUser question: "${question}"\n\nAnswer:`;
+  
+  const prompt = `You are a helpful assistant answering questions based on the provided context.
+
+Context:
+${context}
+
+User Question: ${question}
+
+Instructions:
+- Answer based ONLY on the provided context
+- If the context doesn't contain the answer, say "The provided context does not contain information about this."
+- Be specific and cite relevant details from the context
+- Keep answers clear and concise
+
+Answer:`;
+
   const chat = await groq.chat.completions.create({
     messages: [{ role: "user", content: prompt }],
     model: MODEL_ID,
     max_tokens: 512,
+    temperature: 0.3  // Lower temperature for more factual responses
   });
-  return chat.choices[0]?.message?.content || "No answer.";
+  
+  return chat.choices[0]?.message?.content || "No answer generated.";
 }
 
 app.get("/api/health", async (req, res) => {
@@ -256,12 +312,6 @@ app.post('/api/index', async (req, res) => {
       text = (await pdfParse(buffer)).text;
     } else if (ext === 'md' || ext === 'txt') {
       text = buffer.toString('utf-8');
-    } else if (ext === 'docx') {
-      // If you have mammoth installed
-      // const mammoth = require('mammoth');
-      // const result = await mammoth.extractRawText({ buffer });
-      // text = result.value;
-      text = '[DOCX file - parser needed]';
     } else {
       return res.status(400).json({ error: 'Unsupported file type' });
     }
@@ -270,39 +320,47 @@ app.post('/api/index', async (req, res) => {
       return res.status(400).json({ error: 'No text extracted from document' });
     }
     
-    // Generate embedding
-    const embedding = await getEmbedding(text.slice(0, 2048));
-    
     // Extract metadata
     const department = s3Key.split('/')[0];
     const title = s3Key.split('/').pop();
     
-    // Store in ChromaDB
-    await collection.add({
-      ids: [s3Key],
-      embeddings: [embedding],
-      metadatas: [{
-        title,
-        s3Key,
-        department,
-        lastModified: new Date().toISOString()
-      }],
-      documents: [text.slice(0, 10000)]
-    });
+    // Chunk the text
+    const chunks = chunkText(text, 1500, 200);
+    console.log(`Created ${chunks.length} chunks for ${title}`);
     
-    console.log(`✓ Indexed: ${s3Key}`);
+    // Store each chunk with embedding
+    for (let i = 0; i < chunks.length; i++) {
+      const embedding = await getEmbedding(chunks[i]);
+      const chunkId = `${s3Key}#chunk${i}`;
+      
+      await collection.add({
+        ids: [chunkId],
+        embeddings: [embedding],
+        metadatas: [{
+          title,
+          s3Key,
+          department,
+          chunkIndex: i,
+          totalChunks: chunks.length,
+          lastModified: new Date().toISOString()
+        }],
+        documents: [chunks[i]]
+      });
+    }
+    
+    console.log(`✓ Indexed: ${s3Key} (${chunks.length} chunks)`);
     
     res.json({ 
       success: true,
       message: 'Document indexed successfully',
-      s3Key
+      s3Key,
+      chunksCreated: chunks.length
     });
   } catch (err) {
     console.error('Index error:', err);
     res.status(500).json({ error: err.message });
   }
 });
-
 
 app.listen(PORT, () => {
   console.log("Backend running on port", PORT);
