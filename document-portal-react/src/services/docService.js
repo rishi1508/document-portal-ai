@@ -2,7 +2,7 @@
 const DOCS_KEY = 'documind_docs'
 const REQUESTS_KEY = 'documind_doc_requests'
 
-const API_BASE = import.meta.env.VITE_API_BASE
+const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 const S3_BUCKET = import.meta.env.VITE_S3_BUCKET
 
 const API_ENDPOINT = `${API_BASE}/upload`
