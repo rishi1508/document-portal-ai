@@ -148,7 +148,7 @@ app.post('/api/chat', async (req, res) => {
     const embedding = await getEmbedding(query);
     const results = await collection.query({
       queryEmbeddings: [embedding],
-      nResults: 3
+      nResults: 10
     });
     
     if (!results.documents || !results.documents[0] || results.documents[0].length === 0) {
