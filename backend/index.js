@@ -25,7 +25,6 @@ app.use(express.json());
 AWS.config.update({ region: AWS_REGION });
 const s3 = new AWS.S3();
 
-// ========== TEXT CHUNKING FUNCTION ========== //
 function chunkText(text, chunkSize = 1500, overlap = 200) {
   const chunks = [];
   let start = 0;
@@ -43,20 +42,17 @@ function chunkText(text, chunkSize = 1500, overlap = 200) {
 
 // ----------- Ensure Chroma Collection Exists ----------- //
 async function ensureCollection(name) {
-  // Try to get collection
   let res = await axios.get(`${CHROMA_API}/collections`);
   let exists = (res.data.collections || []).find(c => c.name === name);
   if (exists) return exists;
-  // Only create if not exists
   try {
     res = await axios.post(`${CHROMA_API}/collections`, { name });
     return res.data;
   } catch (err) {
-    // If error includes "already exists", ignore
     if (err.response && err.response.data && String(err.response.data.error).includes('already exists')) {
       return exists;
     }
-    console.error('ChromaDB REST error:', err.message || err);
+    console.error('ChromaDB REST error:', err.response?.data || err.message || err);
     throw err;
   }
 }
@@ -119,25 +115,28 @@ app.post("/api/documents", (req, res) => {
         try {
           const embedding = await getEmbedding(chunks[i]);
           const chunkId = uuidv4();
-          await axios.post(
+          const payload = {
+            ids: [chunkId],
+            embeddings: [embedding],
+            metadatas: [
+              {
+                title: fileObj.name,
+                s3Key,
+                chunkIndex: i,
+                totalChunks: chunks.length,
+              },
+            ],
+            documents: [chunks[i]]
+          };
+          console.log("Adding chunkId to ChromaDB:", chunkId, "(payload ids):", payload.ids);
+          const resp = await axios.post(
             `${CHROMA_API}/collections/${CHROMA_COLLECTION}/add`,
-            {
-              ids: [chunkId],
-              embeddings: [embedding],
-              metadatas: [
-                {
-                  title: fileObj.name,
-                  s3Key,
-                  chunkIndex: i,
-                  totalChunks: chunks.length,
-                },
-              ],
-              documents: [chunks[i]],
-            }
+            payload
           );
+          console.log(`Chunk response status: ${resp.status}`);
           insertCount++;
         } catch (err) {
-          console.error(`Chunk add failed for chunk ${i}:`, err.message);
+          console.error(`Chunk add failed for chunk ${i}:`, err.response?.data || err.message);
         }
       }
 
@@ -161,7 +160,7 @@ app.post("/api/documents", (req, res) => {
         chunksCreated: insertCount,
       });
     } catch (error) {
-      console.error("Upload/Index error:", error);
+      console.error("Upload/Index error:", error.response?.data || error.message);
       res.status(500).json({ error: error.message });
     }
   });
@@ -256,18 +255,17 @@ app.post("/api/chat", async (req, res) => {
       sources: Array.from(uniqueSources.values()),
     });
   } catch (err) {
-    console.error("Chat error:", err);
+    console.error("Chat error:", err.response?.data || err.message);
     res.status(500).json({
       success: false,
       error: err.message,
+      ...(err.response?.data || {})
     });
   }
 });
 
-// General knowledge fallback using Groq without context
 async function getGeneralAnswer(question) {
   const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-
   const chat = await groq.chat.completions.create({
     messages: [
       {
@@ -279,11 +277,9 @@ async function getGeneralAnswer(question) {
     max_tokens: 256,
     temperature: 0.5,
   });
-
   return chat.choices[0]?.message?.content || "I couldn't find an answer.";
 }
 
-// ----------- Utility: Embedding ----------- //
 async function getEmbedding(text) {
   if (!text || text.trim().length === 0) {
     return Array(768).fill(0);
@@ -306,10 +302,8 @@ async function getEmbedding(text) {
   }
 }
 
-// ----------- Utility: Groq RAG Generation ----------- //
 async function runGroqRAG(question, context) {
   const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-
   const prompt = `You are a helpful assistant answering questions based on the provided context.
 Context:
 ${context}
@@ -332,7 +326,6 @@ Answer:`;
   return chat.choices[0]?.message?.content || "No answer generated.";
 }
 
-// ChromaDB health check route
 app.get("/api/health", async (req, res) => {
   try {
     const collections = await axios
@@ -348,11 +341,9 @@ app.get("/api/health", async (req, res) => {
   }
 });
 
-// ----------- Index Single Document from S3 ----------- //
 app.post("/api/index", async (req, res) => {
   try {
     const { s3Key } = req.body;
-
     if (!s3Key) {
       return res.status(400).json({ error: "Missing s3Key" });
     }
@@ -395,7 +386,7 @@ app.post("/api/index", async (req, res) => {
       try {
         const embedding = await getEmbedding(chunks[i]);
         const chunkId = uuidv4();
-        await axios.post(`${CHROMA_API}/collections/${CHROMA_COLLECTION}/add`, {
+        const payload = {
           ids: [chunkId],
           embeddings: [embedding],
           metadatas: [
@@ -409,14 +400,16 @@ app.post("/api/index", async (req, res) => {
             },
           ],
           documents: [chunks[i]],
-        });
+        };
+        console.log("Adding chunkId to ChromaDB:", chunkId, "(payload ids):", payload.ids);
+        const resp = await axios.post(`${CHROMA_API}/collections/${CHROMA_COLLECTION}/add`, payload);
+        console.log(`Chunk response status: ${resp.status}`);
         insertCount++;
       } catch (err) {
-        console.error(`Chunk add failed for chunk ${i}:`, err.message);
+        console.error(`Chunk add failed for chunk ${i}:`, err.response?.data || err.message);
       }
     }
 
-    // Print all doc titles in Chroma after add
     const allDocs = await axios.post(
       `${CHROMA_API}/collections/${CHROMA_COLLECTION}/get`,
       {}
@@ -437,7 +430,7 @@ app.post("/api/index", async (req, res) => {
       chunksCreated: insertCount,
     });
   } catch (err) {
-    console.error("Index error:", err);
+    console.error("Index error:", err.response?.data || err.message);
     res.status(500).json({ error: err.message });
   }
 });
