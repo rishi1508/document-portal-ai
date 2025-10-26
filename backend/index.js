@@ -43,16 +43,20 @@ function chunkText(text, chunkSize = 1500, overlap = 200) {
 
 // ----------- Ensure Chroma Collection Exists ----------- //
 async function ensureCollection(name) {
+  // Try to get collection
+  let res = await axios.get(`${CHROMA_API}/collections`);
+  let exists = (res.data.collections || []).find(c => c.name === name);
+  if (exists) return exists;
+  // Only create if not exists
   try {
-    // Try to get collection
-    let res = await axios.get(`${CHROMA_API}/collections`);
-    let exists = (res.data.collections || []).find((c) => c.name === name);
-    if (exists) return exists;
-    // Else create new collection
     res = await axios.post(`${CHROMA_API}/collections`, { name });
     return res.data;
   } catch (err) {
-    console.error("ChromaDB REST error:", err.message || err);
+    // If error includes "already exists", ignore
+    if (err.response && err.response.data && String(err.response.data.error).includes('already exists')) {
+      return exists;
+    }
+    console.error('ChromaDB REST error:', err.message || err);
     throw err;
   }
 }
