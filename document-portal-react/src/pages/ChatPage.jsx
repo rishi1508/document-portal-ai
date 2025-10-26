@@ -11,11 +11,12 @@ const ChatPage = () => {
   return (
     <div className="flex h-screen bg-dark-primary overflow-hidden">
       <Sidebar />
-      
       <div className={'flex-1 flex flex-col transition-all duration-300 ' + (sidebarCollapsed ? 'ml-20' : 'ml-72')}>
         <Header />
-        <ChatContainer />
-        <InputArea />
+        <div className="flex-1 flex flex-col min-h-0">
+          <ChatContainer />
+          <InputArea />
+        </div>
       </div>
     </div>
   )

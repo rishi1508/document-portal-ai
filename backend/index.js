@@ -14,6 +14,8 @@ const AWS_REGION = process.env.AWS_REGION;
 const PORT = process.env.PORT || 3200;
 const MODEL_ID = process.env.RAG_MODEL_ID || "llama-3.3-70b-versatile";
 
+const MAX_FILE_SIZE_BYTES = 8 * 1024 * 1024;
+
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -25,20 +27,20 @@ const s3 = new AWS.S3();
 function chunkText(text, chunkSize = 1500, overlap = 200) {
   const chunks = [];
   let start = 0;
-  
+
   while (start < text.length) {
     const end = Math.min(start + chunkSize, text.length);
     const chunk = text.substring(start, end).trim();
-    
+
     if (chunk.length > 0) {
       chunks.push(chunk);
     }
-    
+
     start += (chunkSize - overlap);
-    
+
     if (start >= text.length) break;
   }
-  
+
   return chunks.length > 0 ? chunks : [text];
 }
 
@@ -72,12 +74,14 @@ let collection;
 
 // ----------- File Upload and Index Route ----------- //
 app.post("/api/documents", (req, res) => {
-  const form = formidable({ multiples: false });
+  const form = formidable({ multiples: false, maxFileSize: MAX_FILE_SIZE_BYTES });
   form.parse(req, async (err, fields, files) => {
     try {
       if (err || !files.file)
         return res.status(400).json({ error: "Missing file" });
       const fileObj = files.file;
+      if (fileObj.size > MAX_FILE_SIZE_BYTES)
+        return res.status(413).json({ error: "File exceeds 8MB limit" });
       const buffer = fs.readFileSync(fileObj.path);
       const ext = (fileObj.name.split(".").pop() || "").toLowerCase();
 
@@ -287,12 +291,9 @@ async function runGroqRAG(question, context) {
   const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
   const prompt = `You are a helpful assistant answering questions based on the provided context.
-
 Context:
 ${context}
-
 User Question: ${question}
-
 Instructions:
 - Answer based ONLY on the provided context
 - If the context doesn't contain the answer, say "The provided context does not contain information about this."
