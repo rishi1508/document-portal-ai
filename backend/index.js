@@ -4,8 +4,8 @@ const fs = require("fs");
 const pdfParse = require("pdf-parse");
 const formidable = require("formidable");
 const AWS = require("aws-sdk");
-const { ChromaClient } = require("chromadb");
 const Groq = require("groq-sdk");
+const axios = require("axios");
 require("dotenv").config();
 const fetch = require("node-fetch");
 
@@ -13,8 +13,9 @@ const S3_BUCKET = process.env.S3_BUCKET;
 const AWS_REGION = process.env.AWS_REGION;
 const PORT = process.env.PORT || 3200;
 const MODEL_ID = process.env.RAG_MODEL_ID || "llama-3.3-70b-versatile";
-
 const MAX_FILE_SIZE_BYTES = 8 * 1024 * 1024;
+const CHROMA_API = "http://localhost:8000/api/v1";
+const CHROMA_COLLECTION = "documents";
 
 const app = express();
 app.use(cors());
@@ -27,50 +28,33 @@ const s3 = new AWS.S3();
 function chunkText(text, chunkSize = 1500, overlap = 200) {
   const chunks = [];
   let start = 0;
-
   while (start < text.length) {
     const end = Math.min(start + chunkSize, text.length);
     const chunk = text.substring(start, end).trim();
-
     if (chunk.length > 0) {
       chunks.push(chunk);
     }
-
     start += (chunkSize - overlap);
-
     if (start >= text.length) break;
   }
-
   return chunks.length > 0 ? chunks : [text];
 }
 
-class NoopEmbeddingFunction {
-  async generate(texts) {
-    return texts.map(() => Array(768).fill(0));
+// ----------- Ensure Chroma Collection Exists ----------- //
+async function ensureCollection(name) {
+  try {
+    // Try to get collection
+    let res = await axios.get(`${CHROMA_API}/collections`);
+    let exists = (res.data.collections || []).find(c => c.name === name);
+    if (exists) return exists;
+    // Else create new collection
+    res = await axios.post(`${CHROMA_API}/collections`, { name });
+    return res.data;
+  } catch (err) {
+    console.error('ChromaDB REST error:', err.message || err);
+    throw err;
   }
 }
-
-const chroma = new ChromaClient({
-  host: "localhost",
-  port: 8000,
-  ssl: false,
-});
-const collectionName = "documents";
-
-let collection;
-(async () => {
-  try {
-    collection = await chroma.getOrCreateCollection({
-      name: collectionName,
-      embeddingFunction: new NoopEmbeddingFunction(),
-      metadata: { "hnsw:space": "cosine" },
-    });
-
-    console.log("ChromaDB collection ready:", collectionName);
-  } catch (err) {
-    console.error("ChromaDB initialization error:", err);
-  }
-})();
 
 // ----------- File Upload and Index Route ----------- //
 app.post("/api/documents", (req, res) => {
@@ -86,18 +70,13 @@ app.post("/api/documents", (req, res) => {
       const ext = (fileObj.name.split(".").pop() || "").toLowerCase();
 
       // 1. Upload to S3
-      const s3Key = `uploads/${Date.now()}_${fileObj.name.replace(
-        /\s+/g,
-        "_"
-      )}`;
-      await s3
-        .upload({
-          Bucket: S3_BUCKET,
-          Key: s3Key,
-          Body: buffer,
-          ContentType: fileObj.mimetype || fileObj.type,
-        })
-        .promise();
+      const s3Key = `uploads/${Date.now()}_${fileObj.name.replace(/\s+/g, "_")}`;
+      await s3.upload({
+        Bucket: S3_BUCKET,
+        Key: s3Key,
+        Body: buffer,
+        ContentType: fileObj.mimetype || fileObj.type,
+      }).promise();
 
       // 2. Extract text for embedding
       let text = "";
@@ -119,13 +98,15 @@ app.post("/api/documents", (req, res) => {
       console.log(`Created ${chunks.length} chunks for ${fileObj.name}`);
       let insertCount = 0;
 
-      // 4. Generate embeddings and store each chunk
+      // Ensure collection exists
+      await ensureCollection(CHROMA_COLLECTION);
+
+      // 4. Generate embeddings and store each chunk via REST
       for (let i = 0; i < chunks.length; i++) {
         try {
           const embedding = await getEmbedding(chunks[i]);
           const chunkId = `${s3Key}#chunk${i}`;
-
-          await collection.add({
+          await axios.post(`${CHROMA_API}/collections/${CHROMA_COLLECTION}/add`, {
             ids: [chunkId],
             embeddings: [embedding],
             metadatas: [{
@@ -143,8 +124,8 @@ app.post("/api/documents", (req, res) => {
       }
 
       // Print all doc titles in Chroma after add
-      const allDocs = await collection.get();
-      console.log("Current ChromaDB titles/keys:", (allDocs.metadatas || []).map(x => x && x.title).filter(Boolean).slice(0, 50));
+      const allDocs = await axios.post(`${CHROMA_API}/collections/${CHROMA_COLLECTION}/get`, {});
+      console.log("Current ChromaDB titles/keys:", (allDocs.data.metadatas || []).map(x => x && x.title).filter(Boolean).slice(0, 50));
 
       res.json({
         id: s3Key,
@@ -194,15 +175,15 @@ app.post('/api/chat', async (req, res) => {
     }
 
     // 2. Perform RAG retrieval
+    await ensureCollection(CHROMA_COLLECTION);
     const embedding = await getEmbedding(query);
-    const results = await collection.query({
-      queryEmbeddings: [embedding],
-      nResults: 10
-    });
+    const results = await axios.post(`${CHROMA_API}/collections/${CHROMA_COLLECTION}/query`, {
+      query_embeddings: [embedding],
+      n_results: 10
+    }).then(r => r.data);
 
-    // 3. Check if relevant documents found (similarity threshold)
     const hasRelevantDocs = results.distances && results.distances[0] &&
-                            results.distances[0].some(d => d < 0.7); // Adjust threshold
+                            results.distances[0].some(d => d < 0.7);
 
     if (!hasRelevantDocs || !results.documents[0] || results.documents[0].length === 0) {
       // 4. Fallback to general knowledge
@@ -266,7 +247,6 @@ async function getEmbedding(text) {
   if (!text || text.trim().length === 0) {
     return Array(768).fill(0);
   }
-
   try {
     const response = await fetch("http://localhost:11434/api/embeddings", {
       method: "POST",
@@ -277,7 +257,6 @@ async function getEmbedding(text) {
       }),
       timeout: 30000
     });
-
     const data = await response.json();
     return data.embedding;
   } catch (err) {
@@ -306,19 +285,20 @@ Answer:`;
     messages: [{ role: "user", content: prompt }],
     model: MODEL_ID,
     max_tokens: 512,
-    temperature: 0.3  // Lower temperature for more factual responses
+    temperature: 0.3
   });
 
   return chat.choices[0]?.message?.content || "No answer generated.";
 }
 
+// ChromaDB health check route
 app.get("/api/health", async (req, res) => {
   try {
-    const collections = await chroma.listCollections();
+    const collections = await axios.get(`${CHROMA_API}/collections`).then(r => r.data);
     res.json({
       status: "ok",
       chroma: "connected",
-      collections: collections.map((c) => c.name),
+      collections: collections.collections.map((c) => c.name),
     });
   } catch (err) {
     res.status(500).json({ status: "error", message: err.message });
@@ -333,7 +313,6 @@ app.post('/api/index', async (req, res) => {
     if (!s3Key) {
       return res.status(400).json({ error: 'Missing s3Key' });
     }
-
     console.log(`Indexing document: ${s3Key}`);
 
     // Download file from S3
@@ -343,7 +322,6 @@ app.post('/api/index', async (req, res) => {
     // Extract text
     let text = '';
     const ext = s3Key.split('.').pop().toLowerCase();
-
     if (ext === 'pdf') {
       text = (await pdfParse(buffer)).text;
     } else if (ext === 'md' || ext === 'txt') {
@@ -351,7 +329,6 @@ app.post('/api/index', async (req, res) => {
     } else {
       return res.status(400).json({ error: 'Unsupported file type' });
     }
-
     if (!text || text.trim().length < 10) {
       return res.status(400).json({ error: 'No text extracted from document' });
     }
@@ -365,13 +342,15 @@ app.post('/api/index', async (req, res) => {
     console.log(`Created ${chunks.length} chunks for ${title}`);
     let insertCount = 0;
 
-    // Store each chunk with embedding
+    // Ensure collection exists
+    await ensureCollection(CHROMA_COLLECTION);
+
+    // Store each chunk with embedding via REST
     for (let i = 0; i < chunks.length; i++) {
       try {
         const embedding = await getEmbedding(chunks[i]);
         const chunkId = `${s3Key}#chunk${i}`;
-
-        await collection.add({
+        await axios.post(`${CHROMA_API}/collections/${CHROMA_COLLECTION}/add`, {
           ids: [chunkId],
           embeddings: [embedding],
           metadatas: [{
@@ -391,9 +370,8 @@ app.post('/api/index', async (req, res) => {
     }
 
     // Print all doc titles in Chroma after add
-    const allDocs = await collection.get();
-    console.log("Current ChromaDB titles/keys:", (allDocs.metadatas || []).map(x => x && x.title).filter(Boolean).slice(0, 50));
-
+    const allDocs = await axios.post(`${CHROMA_API}/collections/${CHROMA_COLLECTION}/get`, {});
+    console.log("Current ChromaDB titles/keys:", (allDocs.data.metadatas || []).map(x => x && x.title).filter(Boolean).slice(0, 50));
     console.log(`✓ Indexed: ${s3Key} (${insertCount} chunks)`);
 
     res.json({
