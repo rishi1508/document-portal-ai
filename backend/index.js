@@ -3,7 +3,7 @@ const cors = require("cors");
 const fs = require("fs");
 const pdfParse = require("pdf-parse");
 const formidable = require("formidable");
-const AWS = require("aws-sdk");
+const { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, ListObjectsV2Command } = require("@aws-sdk/client-s3");
 const Groq = require("groq-sdk");
 require("dotenv").config();
 const fetch = require("node-fetch");
@@ -26,8 +26,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-AWS.config.update({ region: AWS_REGION });
-const s3 = new AWS.S3();
+const s3Client = new S3Client({ region: AWS_REGION });
 
 // Initialize Qdrant client
 const qdrant = new QdrantClient({
@@ -71,12 +70,12 @@ async function ensureQdrantCollection() {
 async function ensureS3KeyIndex() {
   try {
     console.log(`Ensuring s3Key index exists in Qdrant collection...`);
-    
+
     await qdrant.createPayloadIndex(QDRANT_COLLECTION, {
       field_name: "s3Key",
       field_schema: "keyword"
     });
-    
+
     console.log(`✓ s3Key index created or already exists`);
   } catch (err) {
     // Index might already exist
@@ -116,12 +115,12 @@ app.post("/api/documents", (req, res) => {
 
       // 1. Upload to S3
       const s3Key = `uploads/${Date.now()}_${fileObj.name.replace(/\s+/g, "_")}`;
-      await s3.upload({
+      await s3Client.send(new PutObjectCommand({
         Bucket: S3_BUCKET,
         Key: s3Key,
         Body: buffer,
         ContentType: fileObj.mimetype || fileObj.type,
-      }).promise();
+      }));
 
       // 2. Extract text for embedding
       let text = "";
@@ -190,9 +189,12 @@ app.post("/api/documents", (req, res) => {
 // ----------- List Documents from S3 ----------- //
 app.get("/api/documents", async (req, res) => {
   try {
-    const data = await s3
-      .listObjectsV2({ Bucket: S3_BUCKET, Prefix: "uploads/" })
-      .promise();
+    const command = new ListObjectsV2Command({
+      Bucket: S3_BUCKET,
+      Prefix: "uploads/"
+    });
+    const data = await s3Client.send(command);
+
     const docs = (data.Contents || []).map((obj) => ({
       key: obj.Key,
       url: `https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${obj.Key}`,
@@ -445,8 +447,10 @@ app.post("/api/index", async (req, res) => {
     console.log(`Indexing document: ${s3Key}`);
 
     // Download file from S3
-    const file = await s3.getObject({ Bucket: S3_BUCKET, Key: s3Key }).promise();
-    const buffer = file.Body;
+    const command = new GetObjectCommand({ Bucket: S3_BUCKET, Key: s3Key });
+    const response = await s3Client.send(command);
+    const buffer = Buffer.from(await response.Body.transformToByteArray());
+
 
     // Extract text
     let text = "";
@@ -530,7 +534,10 @@ app.delete("/api/documents", async (req, res) => {
 
     // 1. Delete from S3
     try {
-      await s3.deleteObject({ Bucket: S3_BUCKET, Key: s3Key }).promise();
+      await s3Client.send(new DeleteObjectCommand({
+        Bucket: S3_BUCKET,
+        Key: s3Key
+      }));
       console.log(`✓ Deleted from S3: ${s3Key}`);
     } catch (err) {
       console.error(`S3 delete failed:`, err.message);
