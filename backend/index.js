@@ -128,7 +128,7 @@ app.post("/api/documents", (req, res) => {
         try {
           const embedding = await getEmbedding(chunks[i]);
           const pointId = uuidv4();
-          
+
           await qdrant.upsert(QDRANT_COLLECTION, {
             wait: true,
             points: [
@@ -203,7 +203,7 @@ app.post("/api/chat", async (req, res) => {
     // 2. Perform RAG retrieval from Qdrant
     await ensureQdrantCollection();
     const queryEmbedding = await getEmbedding(query);
-    
+
     const searchResults = await qdrant.search(QDRANT_COLLECTION, {
       vector: queryEmbedding,
       limit: 10,
@@ -262,18 +262,18 @@ app.post("/api/chat", async (req, res) => {
 // Conversational answer without documents but with history
 async function getConversationalAnswer(question, conversationHistory) {
   const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-  
+
   // Build messages array with limited history (last 4 exchanges max)
   const messages = [];
   const recentHistory = conversationHistory.slice(-4);
-  
+
   recentHistory.forEach(msg => {
     messages.push({
       role: msg.role === 'user' ? 'user' : 'assistant',
       content: msg.content
     });
   });
-  
+
   messages.push({
     role: 'user',
     content: question
@@ -285,18 +285,18 @@ async function getConversationalAnswer(question, conversationHistory) {
     max_tokens: 256,
     temperature: 0.5,
   });
-  
+
   return chat.choices[0]?.message?.content || "I couldn't find an answer.";
 }
 
 // RAG with conversation history
 async function runGroqRAGWithHistory(question, context, conversationHistory) {
   const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-  
+
   // Build conversation messages (limit to last 3 exchanges to save tokens)
   const messages = [];
   const recentHistory = conversationHistory.slice(-3);
-  
+
   // Add context as system message
   messages.push({
     role: "system",
@@ -311,7 +311,7 @@ Instructions:
 - Keep answers clear and concise
 - Remember previous parts of this conversation when relevant`
   });
-  
+
   // Add conversation history
   recentHistory.forEach(msg => {
     messages.push({
@@ -319,7 +319,7 @@ Instructions:
       content: msg.content
     });
   });
-  
+
   // Add current question
   messages.push({
     role: "user",
@@ -456,7 +456,7 @@ app.post("/api/index", async (req, res) => {
       try {
         const embedding = await getEmbedding(chunks[i]);
         const pointId = uuidv4();
-        
+
         await qdrant.upsert(QDRANT_COLLECTION, {
           wait: true,
           points: [
@@ -512,13 +512,18 @@ app.delete("/api/documents", async (req, res) => {
       console.log(`✓ Deleted from S3: ${s3Key}`);
     } catch (err) {
       console.error(`S3 delete failed:`, err.message);
+      // Continue to Qdrant deletion even if S3 fails
     }
 
     // 2. Delete all chunks from Qdrant matching this s3Key
+    let deletedCount = 0;
     try {
       await ensureQdrantCollection();
-      
-      await qdrant.delete(QDRANT_COLLECTION, {
+
+      console.log(`[DEBUG] Attempting Qdrant delete for s3Key: ${s3Key}`);
+
+      // First, scroll to find all matching points
+      const scrollResult = await qdrant.scroll(QDRANT_COLLECTION, {
         filter: {
           must: [
             {
@@ -528,24 +533,43 @@ app.delete("/api/documents", async (req, res) => {
               }
             }
           ]
-        }
+        },
+        limit: 1000,
+        with_payload: false,
+        with_vector: false
       });
-      
-      console.log(`✓ Deleted from Qdrant: all chunks with s3Key=${s3Key}`);
+
+      const pointIds = scrollResult.points.map(p => p.id);
+      console.log(`[DEBUG] Found ${pointIds.length} points to delete for s3Key: ${s3Key}`);
+
+      // Delete by IDs if any found
+      if (pointIds.length > 0) {
+        await qdrant.delete(QDRANT_COLLECTION, {
+          wait: true,
+          points: pointIds
+        });
+        deletedCount = pointIds.length;
+        console.log(`✓ Deleted ${deletedCount} points from Qdrant for s3Key=${s3Key}`);
+      } else {
+        console.log(`⚠️ No Qdrant points found for s3Key=${s3Key}`);
+      }
     } catch (err) {
-      console.error(`Qdrant delete failed:`, err.message);
+      console.error(`[ERROR] Qdrant delete failed:`, err.message);
+      console.error(`[ERROR] Full error:`, err);
     }
 
     res.json({
       success: true,
       message: "Document deleted successfully from S3 and Qdrant",
-      s3Key
+      s3Key,
+      qdrantPointsDeleted: deletedCount
     });
   } catch (err) {
     console.error("Delete error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
+
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log("Backend running on port", PORT);
