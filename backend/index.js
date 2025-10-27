@@ -9,6 +9,7 @@ require("dotenv").config();
 const fetch = require("node-fetch");
 const { v4: uuidv4 } = require("uuid");
 const { QdrantClient } = require("@qdrant/js-client-rest");
+const mammoth = require("mammoth");
 
 const S3_BUCKET = process.env.S3_BUCKET;
 const AWS_REGION = process.env.AWS_REGION;
@@ -100,12 +101,12 @@ async function ensureS3KeyIndex(collectionName) {
 async function initializeAllCollections() {
   try {
     console.log('Initializing Qdrant collections...\n');
-    
+
     for (const [kbId, collectionName] of Object.entries(KB_TO_COLLECTION)) {
       await ensureQdrantCollection(collectionName);
       await ensureS3KeyIndex(collectionName);
     }
-    
+
     console.log('\n✓ All collections initialized\n');
   } catch (err) {
     console.error("Qdrant initialization error:", err);
@@ -144,6 +145,10 @@ app.post("/api/documents", (req, res) => {
       let text = "";
       if (ext === "pdf") {
         text = (await pdfParse(buffer)).text;
+      } else if (ext === "docx" || ext === "doc") {
+        // Extract text from Word documents
+        const result = await mammoth.extractRawText({ buffer });
+        text = result.value;
       } else if (
         ext === "md" ||
         ext === "txt" ||
@@ -233,7 +238,7 @@ app.get("/api/documents", async (req, res) => {
 app.post("/api/chat", async (req, res) => {
   try {
     const { query, conversationHistory = [], kbId = 'common-policies' } = req.body;
-    
+
     // Get collection for this KB
     const collectionName = getCollectionForKB(kbId);
     console.log(`Chat query for KB: ${kbId} → Collection: ${collectionName}`);
@@ -311,21 +316,21 @@ app.post("/api/chat", async (req, res) => {
 // Conversational answer without documents but with history
 async function getConversationalAnswer(question, conversationHistory) {
   const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-  
+
   const cleanHistory = (conversationHistory || [])
     .slice(-4)
     .filter(msg => msg && msg.role && msg.content && typeof msg.content === 'string')
     .filter(msg => msg.content.length < 2000);
-  
+
   const messages = [];
-  
+
   cleanHistory.forEach(msg => {
     messages.push({
       role: msg.role === 'user' ? 'user' : 'assistant',
       content: msg.content.trim()
     });
   });
-  
+
   messages.push({
     role: 'user',
     content: question.trim()
@@ -337,21 +342,21 @@ async function getConversationalAnswer(question, conversationHistory) {
     max_tokens: 256,
     temperature: 0.5,
   });
-  
+
   return chat.choices[0]?.message?.content || "I couldn't find an answer.";
 }
 
 // RAG with conversation history
 async function runGroqRAGWithHistory(question, context, conversationHistory) {
   const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-  
+
   const cleanHistory = (conversationHistory || [])
     .slice(-3)
     .filter(msg => msg && msg.role && msg.content && typeof msg.content === 'string')
     .filter(msg => msg.content.length < 2000);
-  
+
   const messages = [];
-  
+
   messages.push({
     role: "system",
     content: `You are a helpful assistant answering questions based on the provided context.
@@ -365,14 +370,14 @@ Instructions:
 - Keep answers clear and concise
 - Remember previous parts of this conversation when relevant`
   });
-  
+
   cleanHistory.forEach(msg => {
     messages.push({
       role: msg.role === 'user' ? 'user' : 'assistant',
       content: msg.content.trim()
     });
   });
-  
+
   messages.push({
     role: "user",
     content: question.trim()
@@ -459,6 +464,10 @@ app.post("/api/index", async (req, res) => {
     const ext = s3Key.split(".").pop().toLowerCase();
     if (ext === "pdf") {
       text = (await pdfParse(buffer)).text;
+    } else if (ext === "docx" || ext === "doc") {
+      // Extract text from Word documents
+      const result = await mammoth.extractRawText({ buffer });
+      text = result.value;
     } else if (ext === "md" || ext === "txt") {
       text = buffer.toString("utf-8");
     } else {
