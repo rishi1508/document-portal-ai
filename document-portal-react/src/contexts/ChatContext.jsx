@@ -87,7 +87,7 @@ export const ChatProvider = ({ children }) => {
         setIsSwitchingKB(false)
     }
 
-    const addMessage = (type, content, sources = []) => {
+    const addMessage = (type, content, sources = [], tempMsg = false) => {
         let chatIdToUse = currentChatId
         if (!chatIdToUse) {
             chatIdToUse = createNewChatForKB(currentKB)
@@ -98,22 +98,26 @@ export const ChatProvider = ({ children }) => {
             content,
             sources,
             timestamp: new Date().toISOString(),
+            tempMsg  // For thinking placeholder
         }
 
         setChatsById(prev => {
             const chat = prev[chatIdToUse]
             if (!chat) return prev
 
-            const now = Date.now()
-            const recentDuplicate = chat.messages.find(msg => {
-                const msgTime = new Date(msg.timestamp).getTime()
-                const timeDiff = now - msgTime
-                return msg.type === type && msg.content === content && timeDiff < 3000
-            })
+            // Prevent duplicates (unless thinking placeholder)
+            if (!tempMsg && content.length > 0) {
+                const now = Date.now()
+                const recentDuplicate = chat.messages.find(msg => {
+                    const msgTime = new Date(msg.timestamp).getTime()
+                    const timeDiff = now - msgTime
+                    return msg.type === type && msg.content === content && timeDiff < 3000
+                })
 
-            if (recentDuplicate) {
-                console.log('Prevented duplicate message')
-                return prev
+                if (recentDuplicate) {
+                    console.log('Prevented duplicate message')
+                    return prev
+                }
             }
 
             const updatedChat = {
@@ -121,11 +125,17 @@ export const ChatProvider = ({ children }) => {
                 messages: [...chat.messages, newMessage],
             }
 
-            if (type === 'user' && !updatedChat.title) {
-                generateChatTitle(updatedChat)
+            // Generate title after FIRST user message (not empty/thinking)
+            const userMsgCount = updatedChat.messages.filter(m => m.type === 'user' && m.content.length > 0).length
+            if (type === 'user' && userMsgCount === 1 && !updatedChat.title && content.length > 0) {
+                // Delay title generation to ensure state update completes
+                setTimeout(() => {
+                    generateChatTitle(updatedChat)
+                }, 500)
             }
 
-            if (updatedChat.messages.some(m => m.type === 'user')) {
+            // Save to history if has real user message (skip empty/thinking)
+            if (updatedChat.messages.some(m => m.type === 'user' && m.content.length > 0)) {
                 saveChatToHistory(updatedChat)
             }
 
@@ -135,6 +145,8 @@ export const ChatProvider = ({ children }) => {
         if (currentChatId !== chatIdToUse) {
             setCurrentChatId(chatIdToUse)
         }
+
+        return chatIdToUse  // Return for InputArea to track thinking msg
     }
 
     const updateStreamingMessage = (content, sources = []) => {
@@ -152,21 +164,28 @@ export const ChatProvider = ({ children }) => {
                             ...lastMsg,
                             content,
                             sources,
-                            timestamp: new Date().toISOString()  // Update timestamp during stream
+                            timestamp: new Date().toISOString()
                         }
                     ]
                 }
+
+                // Save updated chat to history during streaming (for live preview)
+                if (content.length > 50) {  // Only after some content accumulated
+                    saveChatToHistory(updated)
+                }
+
                 return { ...prev, [currentChatId]: updated }
             }
             return prev
         })
     }
 
-
     const generateChatTitle = async (chat) => {
         try {
-            const userMessages = chat.messages.filter(m => m.type === 'user').slice(0, 3).map(m => m.content)
+            const userMessages = chat.messages.filter(m => m.type === 'user' && m.content.length > 0).slice(0, 3).map(m => m.content)
             if (userMessages.length === 0) return
+
+            console.log('Generating title for chat:', chat.id, '| Messages:', userMessages.length)
 
             const response = await fetch('http://localhost:3200/api/generate-title', {
                 method: 'POST',
@@ -174,30 +193,57 @@ export const ChatProvider = ({ children }) => {
                 body: JSON.stringify({ messages: userMessages })
             })
 
+            if (!response.ok) {
+                console.error('Title generation failed:', response.status)
+                return
+            }
+
             const data = await response.json()
             const title = data.title || `${KB_NAMES[chat.kbId]} Chat`
 
+            console.log('✓ Generated title:', title)
+
+            // Update chatsById with new title
             const updatedChat = { ...chat, title }
-            setChatsById(prev => ({ ...prev, [chat.id]: updatedChat }))
+            setChatsById(prev => {
+                const updated = { ...prev, [chat.id]: updatedChat }
+                console.log('[DEBUG] Updated chatsById with title:', title)
+                return updated
+            })
+
+            // CRITICAL: Force update history with new title
             saveChatToHistory(updatedChat)
+
+            // Verify after 1 second (debug)
+            setTimeout(() => {
+                console.log('[DEBUG] Title in state after 1s:', chatsById[chat.id]?.title)
+            }, 1000)
         } catch (err) {
-            console.error('Title generation failed:', err)
+            console.error('Title generation error:', err)
         }
     }
 
     const saveChatToHistory = (chat) => {
-        if (!user?.id || !chat.messages.some(m => m.type === 'user')) return
+        if (!user?.id || !chat.messages.some(m => m.type === 'user' && m.content.length > 0)) return
 
         setChatHistory(prev => {
             const filtered = prev.filter(c => c.id !== chat.id)
 
+            // Always use chat.title if set (from generation), else fallback
             const title = chat.title || `${KB_NAMES[chat.kbId]} Chat`
             const lastMsg = chat.messages[chat.messages.length - 1]
             const preview = lastMsg?.content.substring(0, 100) + (lastMsg?.content.length > 100 ? '...' : '')
 
-            const chatForHistory = { ...chat, title, preview }
+            const chatForHistory = {
+                ...chat,
+                title,  // Ensure title propagates
+                preview
+            }
 
             const updated = [chatForHistory, ...filtered].slice(0, 50)
+
+            console.log(`[DEBUG] Saved chat to history: "${title}" (ID: ${chat.id.substring(0, 8)}...)`)
+
             return updated
         })
     }
@@ -247,7 +293,7 @@ export const ChatProvider = ({ children }) => {
 
     const startNewChat = () => {
         const chat = getCurrentChat()
-        if (chat?.messages.some(msg => msg.type === 'user')) {
+        if (chat?.messages.some(msg => msg.type === 'user' && msg.content.length > 0)) {
             saveChatToHistory(chat)
         }
         const newId = createNewChatForKB(currentKB)
@@ -257,13 +303,16 @@ export const ChatProvider = ({ children }) => {
 
     const getConversationHistory = () => {
         const chat = getCurrentChat()
-        return chat.messages.slice(-6).map(msg => ({
-            role: msg.type === 'user' ? 'user' : 'assistant',
-            content: msg.content
-        }))
+        return chat.messages
+            .filter(m => m.content.length > 0)  // Skip empty/thinking messages
+            .slice(-10)  // Increased from 6 for better context
+            .map(msg => ({
+                role: msg.type === 'user' ? 'user' : 'assistant',
+                content: msg.content.substring(0, 500)  // Truncate long messages
+            }))
     }
 
-    // Load/Save useEffects unchanged
+    // Load/Save useEffects
     useEffect(() => {
         if (!user?.id) {
             setIsLoading(false)

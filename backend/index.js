@@ -263,17 +263,17 @@ app.post("/api/chat", async (req, res) => {
     const collectionName = getCollectionForKB(kbId);
     console.log(`Chat query for KB: ${kbId} → Collection: ${collectionName}`);
 
-    // Greetings detection (unchanged)
+    // Greetings detection
     const greetings = ["hi", "hello", "hey", "good morning", "good afternoon"];
     if (greetings.some((g) => query.toLowerCase().includes(g)) && conversationHistory.length === 0) {
       const kbGreetings = {
-        'common-policies': 'Hello! I\'m your Common Policies assistant. I can help you find information about company-wide policies, holidays, HR guidelines, and general procedures. What would you like to know?',
+        'common-policies': 'Hello! I\'m your Common Policies assistant. I can help you find information about company-wide policies, holidays, HR guidelines, resignation procedures, and general employment regulations. What would you like to know?',
         'devops': 'Hello! I\'m your DevOps assistant. I can help you with deployment procedures, infrastructure guidelines, Lambda automation, and technical documentation. What can I help you with?',
         'platform-engineering': 'Hello! I\'m your Platform Engineering assistant. I can help you with platform architecture, system specifications, and engineering standards. How can I assist you?',
         'product-management': 'Hello! I\'m your Product Management assistant. I can help you with product documentation, roadmaps, and management guidelines. What would you like to know?',
         'solution-analysts': 'Hello! I\'m your Solution Analysts assistant. I can help you with solution designs, analysis documentation, and technical requirements. How can I help?',
       };
-      
+
       return res.json({
         success: true,
         answer: kbGreetings[kbId] || 'Hello! How can I assist you today?',
@@ -291,7 +291,7 @@ app.post("/api/chat", async (req, res) => {
 
     const searchResults = await qdrant.search(collectionName, {
       vector: queryEmbedding,
-      limit: 12,  // Increased
+      limit: 12,
       with_payload: true,
       with_vector: false,
     });
@@ -303,10 +303,20 @@ app.post("/api/chat", async (req, res) => {
     console.log(`After keyword boost, top score: ${keywordBoosted[0]?.score || 'N/A'}`);
 
     // LOWER THRESHOLD
-    const hasRelevantDocs = keywordBoosted.some((r) => r.score >= 0.3);  // Was 0.4
+    const hasRelevantDocs = keywordBoosted.some((r) => r.score >= 0.3);
 
     if (!hasRelevantDocs || keywordBoosted.length === 0) {
       const conversationalAnswer = await getConversationalAnswer(query, conversationHistory);
+
+      // Validate even fallback responses
+      if (isGibberishResponse(conversationalAnswer)) {
+        return res.json({
+          success: true,
+          answer: "I'm having technical difficulties generating a proper response. Please rephrase your question or contact HR/IT directly for assistance with employment regulations.",
+          sources: [],
+        });
+      }
+
       return res.json({
         success: true,
         answer: `⚠️ This information was not found in your documents.\n\n${conversationalAnswer}`,
@@ -314,26 +324,48 @@ app.post("/api/chat", async (req, res) => {
       });
     }
 
-    // Build context from top results
+    // Build context
     const context = keywordBoosted
-      .slice(0, 8)  // Use top 8 after boost
+      .slice(0, 8)
       .map((r) => r.payload?.text || "")
       .filter(Boolean)
       .join("\n\n---\n\n")
       .slice(0, 8000);
 
-    // STREAMING or NON-STREAMING (unchanged)
+    // STREAMING
     if (stream) {
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
 
-      await streamGroqRAGWithHistory(query, context, conversationHistory, res, keywordBoosted);
-      
-      const uniqueSources = extractSources(keywordBoosted.slice(0, 8));
-      res.write(`data: ${JSON.stringify({ done: true, sources: uniqueSources })}\n\n`);
-      res.end();
+      try {
+        const answer = await streamGroqRAGWithHistory(query, context, conversationHistory, res, keywordBoosted);
+
+        // Validate streamed answer
+        if (isGibberishResponse(answer)) {
+          res.write(`data: ${JSON.stringify({
+            token: "\n\n⚠️ Response error detected. Please rephrase your question.",
+            done: true,
+            sources: []
+          })}\n\n`);
+          res.end();
+          return;
+        }
+
+        const uniqueSources = extractSources(keywordBoosted.slice(0, 8));
+        res.write(`data: ${JSON.stringify({ done: true, sources: uniqueSources })}\n\n`);
+        res.end();
+      } catch (streamErr) {
+        console.error('Streaming error:', streamErr);
+        res.write(`data: ${JSON.stringify({
+          token: "\n\n⚠️ Streaming interrupted. Please try again.",
+          done: true,
+          sources: []
+        })}\n\n`);
+        res.end();
+      }
     } else {
+      // NON-STREAMING
       const answer = await runGroqRAGWithHistory(query, context, conversationHistory);
       const validatedAnswer = await validateResponse(answer, query, context, conversationHistory);
       const uniqueSources = extractSources(keywordBoosted.slice(0, 8));
@@ -348,7 +380,7 @@ app.post("/api/chat", async (req, res) => {
     console.error("Chat error:", err.message);
     res.status(500).json({
       success: false,
-      error: err.message,
+      error: "An error occurred while processing your request. Please try again.",
     });
   }
 });
@@ -385,18 +417,18 @@ function boostByKeywords(results, query) {
   return results.map(result => {
     const text = (result.payload?.text || '').toLowerCase();
     const title = (result.payload?.title || '').toLowerCase();
-    
+
     let keywordScore = 0;
     queryTerms.forEach(term => {
       const textMatches = (text.match(new RegExp(term, 'g')) || []).length;
       const titleMatches = (title.match(new RegExp(term, 'g')) || []).length;
-      
+
       keywordScore += textMatches * 0.05;
       keywordScore += titleMatches * 0.2;
     });
 
     const boostedScore = result.score + Math.min(keywordScore, 0.3);
-    
+
     return {
       ...result,
       score: boostedScore,
@@ -404,6 +436,42 @@ function boostByKeywords(results, query) {
       keywordBoost: keywordScore
     };
   }).sort((a, b) => b.score - a.score);
+}
+
+function isGibberishResponse(text) {
+  // Check 1: Excessive repetition of single words
+  const words = text.toLowerCase().split(/\s+/)
+  const wordCounts = {}
+  words.forEach(w => {
+    wordCounts[w] = (wordCounts[w] || 0) + 1
+  })
+
+  const maxRepeat = Math.max(...Object.values(wordCounts))
+  if (maxRepeat > 10) {  // Same word >10 times = gibberish
+    console.error('⚠️ Gibberish detected: excessive word repetition')
+    return true
+  }
+
+  // Check 2: Nonsensical tokens (programming artifacts)
+  const gibberishTokens = [
+    'visitinsn', 'buildfactory', 'externalactioncode',
+    'injected', 'roscope', 'dateTime', 'production'
+  ]
+  const lowerText = text.toLowerCase()
+  const gibberishCount = gibberishTokens.filter(token => lowerText.includes(token)).length
+  if (gibberishCount > 3) {
+    console.error('⚠️ Gibberish detected: programming tokens in output')
+    return true
+  }
+
+  // Check 3: Excessive dashes (separator spam)
+  const dashCount = (text.match(/--------/g) || []).length
+  if (dashCount > 5) {
+    console.error('⚠️ Gibberish detected: excessive separators')
+    return true
+  }
+
+  return false
 }
 
 // Extract unique sources
@@ -423,6 +491,11 @@ function extractSources(searchResults) {
 
 // Validate response (detect "context does not contain" cop-outs)
 async function validateResponse(answer, query, context, conversationHistory) {
+  // NEW: Gibberish check first
+  if (isGibberishResponse(answer)) {
+    console.error('Model generated gibberish, regenerating...')
+    return await regenerateWithFallback(query, context, conversationHistory)
+  }
   const copOuts = [
     "context does not contain",
     "provided context does not",
@@ -498,17 +571,18 @@ async function streamGroqRAGWithHistory(question, context, conversationHistory, 
 
 **Core Principles:**
 1. **Primary Source**: Always prioritize information from the provided context documents.
-2. **Synthesis**: Combine multiple context chunks to form complete answers (e.g., "lose laptop" → link device policy + IT contact + reporting steps).
-3. **Inference**: If context has related info but not exact match, reason logically (e.g., "switch company" → discuss resignation process, notice period, at-will employment from docs).
-4. **Fallback**: If context is insufficient, provide general workplace guidance clearly marked as "general advice" (not company-specific), then suggest contacting HR/IT/Manager.
-5. **Accuracy**: Validate numbers, dates, lists. If you say "two holidays," list exactly two. Double-check contradictions.
+2. **Synthesis**: Combine multiple context chunks to form complete answers (e.g., "new job offer" → discuss resignation process, notice period, at-will employment, non-compete clauses).
+3. **Inference**: If context has related info but not exact match, reason logically.
+4. **Fallback**: If context is insufficient, provide general workplace guidance clearly marked as "general advice", then suggest contacting HR/IT/Manager.
+5. **Accuracy**: Validate numbers, dates, lists. Double-check contradictions.
 6. **Tone**: Professional, helpful, concise. Use bullet points for policies/steps.
+7. **CRITICAL**: Never repeat words or phrases excessively. If you start looping, STOP and summarize briefly.
 
 **Response Structure:**
 - Start with direct answer (1-2 sentences).
-- Expand with relevant details from context (cite sections if available, e.g., "section 5.2").
-- If context lacks info: "Our documentation doesn't cover [topic] specifically. Generally, [brief advice]. For details, contact [HR/IT/Manager]."
-- **Never say "context does not contain" without offering any guidance.**
+- Expand with relevant details from context (cite sections if available).
+- If context lacks info: "Our documentation doesn't cover [topic] specifically. Generally, [brief advice]. For details, contact HR."
+- **Never output gibberish, code artifacts, or repetitive tokens.**
 
 **Context Chunks Provided:**
 ${context}`;
@@ -530,8 +604,11 @@ ${context}`;
   const stream = await groq.chat.completions.create({
     messages,
     model: MODEL_ID,
-    max_tokens: 600,  // Increased from 512
-    temperature: 0.3,
+    max_tokens: 600,
+    temperature: 0.4,  // Was 0.3
+    top_p: 0.9,
+    frequency_penalty: 0.3,
+    presence_penalty: 0.2,
     stream: true
   });
 
@@ -560,17 +637,18 @@ async function runGroqRAGWithHistory(question, context, conversationHistory) {
 
 **Core Principles:**
 1. **Primary Source**: Always prioritize information from the provided context documents.
-2. **Synthesis**: Combine multiple context chunks to form complete answers (e.g., "lose laptop" → link device policy + IT contact + reporting steps).
-3. **Inference**: If context has related info but not exact match, reason logically (e.g., "switch company" → discuss resignation process, notice period, at-will employment from docs).
-4. **Fallback**: If context is insufficient, provide general workplace guidance clearly marked as "general advice" (not company-specific), then suggest contacting HR/IT/Manager.
-5. **Accuracy**: Validate numbers, dates, lists. If you say "two holidays," list exactly two. Double-check contradictions.
+2. **Synthesis**: Combine multiple context chunks to form complete answers (e.g., "new job offer" → discuss resignation process, notice period, at-will employment, non-compete clauses).
+3. **Inference**: If context has related info but not exact match, reason logically.
+4. **Fallback**: If context is insufficient, provide general workplace guidance clearly marked as "general advice", then suggest contacting HR/IT/Manager.
+5. **Accuracy**: Validate numbers, dates, lists. Double-check contradictions.
 6. **Tone**: Professional, helpful, concise. Use bullet points for policies/steps.
+7. **CRITICAL**: Never repeat words or phrases excessively. If you start looping, STOP and summarize briefly.
 
 **Response Structure:**
 - Start with direct answer (1-2 sentences).
-- Expand with relevant details from context (cite sections if available, e.g., "section 5.2").
-- If context lacks info: "Our documentation doesn't cover [topic] specifically. Generally, [brief advice]. For details, contact [HR/IT/Manager]."
-- **Never say "context does not contain" without offering any guidance.**
+- Expand with relevant details from context (cite sections if available).
+- If context lacks info: "Our documentation doesn't cover [topic] specifically. Generally, [brief advice]. For details, contact HR."
+- **Never output gibberish, code artifacts, or repetitive tokens.**
 
 **Context Chunks Provided:**
 ${context}`;
@@ -593,7 +671,10 @@ ${context}`;
     messages,
     model: MODEL_ID,
     max_tokens: 600,
-    temperature: 0.3,
+    temperature: 0.4,  // Increased from 0.3 (more randomness = less loops)
+    top_p: 0.9,  // Nucleus sampling
+    frequency_penalty: 0.3,  // Penalize repeated tokens
+    presence_penalty: 0.2,  // Penalize repeated topics
   });
 
   return chat.choices[0]?.message?.content || "No answer generated.";
@@ -636,20 +717,20 @@ async function getConversationalAnswer(question, conversationHistory) {
 app.post("/api/generate-title", async (req, res) => {
   try {
     const { messages } = req.body;
-    
+
     if (!messages || messages.length === 0) {
       return res.json({ title: "New Chat" });
     }
-    
+
     const userMessages = Array.isArray(messages) ? messages.slice(0, 3) : [messages];
     const combinedText = userMessages.join('. ');
-    
+
     if (combinedText.length < 5) {
       return res.json({ title: "New Chat" });
     }
-    
+
     const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-    
+
     const chat = await groq.chat.completions.create({
       messages: [
         {
@@ -665,13 +746,13 @@ app.post("/api/generate-title", async (req, res) => {
       max_tokens: 20,
       temperature: 0.3,
     });
-    
+
     let title = chat.choices[0]?.message?.content?.trim() || "New Chat";
     title = title.replace(/^["']|["']$/g, '').replace(/\.$/, '').trim();
     if (title.length > 60) {
       title = title.substring(0, 57) + '...';
     }
-    
+
     res.json({ title });
   } catch (err) {
     console.error("Title generation error:", err.message);

@@ -42,7 +42,7 @@ const InputArea = () => {
       const response = await fetch(CHAT_ENDPOINT, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           query: userMessage,
           conversationHistory: history,
           kbId: currentKB,
@@ -74,6 +74,18 @@ const InputArea = () => {
             const data = JSON.parse(line.slice(6))
             if (data.token) {
               accumulatedAnswer += data.token
+
+              // DETECT GIBBERISH MID-STREAM
+              if (accumulatedAnswer.length > 200 && isGibberish(accumulatedAnswer)) {
+                console.error('Gibberish detected, stopping stream')
+                updateStreamingMessage(
+                  "⚠️ Response error detected. Please rephrase your question or try again.",
+                  []
+                )
+                reader.cancel()  // Stop stream
+                break
+              }
+
               updateStreamingMessage(accumulatedAnswer, sources)
             }
             if (data.done) {
@@ -82,6 +94,12 @@ const InputArea = () => {
             }
           }
         }
+      }
+      // Helper function (add before handleSubmit):
+      function isGibberish(text) {
+        const gibberishTokens = ['visitinsn', 'buildfactory', 'externalactioncode', 'injected']
+        return gibberishTokens.some(token => text.toLowerCase().includes(token)) ||
+          (text.match(/--------/g) || []).length > 5
       }
     } catch (error) {
       console.error('Error querying Chat API:', error)
