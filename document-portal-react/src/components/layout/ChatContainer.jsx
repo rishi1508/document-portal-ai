@@ -33,7 +33,7 @@ const ChatContainer = () => {
   }, [currentChat.id, currentChat.messages.length, addMessage])
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 h-full w-full overflow-y-auto pt-16 pb-40 px-4">
+    <div className="flex-1 flex flex-col min-h-0 h-full w-full overflow-y-auto pt-24 pb-40 px-4">
       {
         hasMessages ?
           (
