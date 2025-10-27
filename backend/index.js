@@ -230,7 +230,7 @@ app.post("/api/chat", async (req, res) => {
 
     const searchResults = await qdrant.search(QDRANT_COLLECTION, {
       vector: queryEmbedding,
-      limit: 10,
+      limit: 3,
       with_payload: true,
       with_vector: false,
     });
@@ -264,7 +264,7 @@ app.post("/api/chat", async (req, res) => {
       if (payload.s3Key && !uniqueSources.has(payload.s3Key)) {
         uniqueSources.set(
           payload.s3Key,
-          `${payload.title || "Unknown"}|${payload.s3Key}|${payload.department || ""}`
+          `${payload.title || "Unknown"} | ${payload.department || payload.s3Key.split('/')[0] || "Unknown"}`
         );
       }
     });
@@ -286,21 +286,25 @@ app.post("/api/chat", async (req, res) => {
 // Conversational answer without documents but with history
 async function getConversationalAnswer(question, conversationHistory) {
   const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-
-  // Build messages array with limited history (last 4 exchanges max)
+  
+  // Validate and clean history
+  const cleanHistory = (conversationHistory || [])
+    .slice(-4)
+    .filter(msg => msg && msg.role && msg.content && typeof msg.content === 'string')
+    .filter(msg => msg.content.length < 2000); // Skip overly long messages
+  
   const messages = [];
-  const recentHistory = conversationHistory.slice(-4);
-
-  recentHistory.forEach(msg => {
+  
+  cleanHistory.forEach(msg => {
     messages.push({
       role: msg.role === 'user' ? 'user' : 'assistant',
-      content: msg.content
+      content: msg.content.trim()
     });
   });
-
+  
   messages.push({
     role: 'user',
-    content: question
+    content: question.trim()
   });
 
   const chat = await groq.chat.completions.create({
@@ -309,18 +313,22 @@ async function getConversationalAnswer(question, conversationHistory) {
     max_tokens: 256,
     temperature: 0.5,
   });
-
+  
   return chat.choices[0]?.message?.content || "I couldn't find an answer.";
 }
 
 // RAG with conversation history
 async function runGroqRAGWithHistory(question, context, conversationHistory) {
   const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-
-  // Build conversation messages (limit to last 3 exchanges to save tokens)
+  
+  // Validate and clean history
+  const cleanHistory = (conversationHistory || [])
+    .slice(-3)
+    .filter(msg => msg && msg.role && msg.content && typeof msg.content === 'string')
+    .filter(msg => msg.content.length < 2000); // Skip overly long messages
+  
   const messages = [];
-  const recentHistory = conversationHistory.slice(-3);
-
+  
   // Add context as system message
   messages.push({
     role: "system",
@@ -335,19 +343,19 @@ Instructions:
 - Keep answers clear and concise
 - Remember previous parts of this conversation when relevant`
   });
-
+  
   // Add conversation history
-  recentHistory.forEach(msg => {
+  cleanHistory.forEach(msg => {
     messages.push({
       role: msg.role === 'user' ? 'user' : 'assistant',
-      content: msg.content
+      content: msg.content.trim()
     });
   });
-
+  
   // Add current question
   messages.push({
     role: "user",
-    content: question
+    content: question.trim()
   });
 
   const chat = await groq.chat.completions.create({
