@@ -281,13 +281,20 @@ app.post("/api/chat", async (req, res) => {
     const collectionName = getCollectionForKB(kbId);
     console.log(`Chat query for KB: ${kbId} → Collection: ${collectionName}`);
 
-    // 1. Detect greetings
+    // 1. Detect greetings with KB-specific message
     const greetings = ["hi", "hello", "hey", "good morning", "good afternoon"];
     if (greetings.some((g) => query.toLowerCase().includes(g)) && conversationHistory.length === 0) {
+      const kbGreetings = {
+        'common-policies': 'Hello! I\'m your Common Policies assistant. I can help you find information about company-wide policies, holidays, HR guidelines, and general procedures. What would you like to know?',
+        'devops': 'Hello! I\'m your DevOps assistant. I can help you with deployment procedures, infrastructure guidelines, Lambda automation, and technical documentation. What can I help you with?',
+        'platform-engineering': 'Hello! I\'m your Platform Engineering assistant. I can help you with platform architecture, system specifications, and engineering standards. How can I assist you?',
+        'product-management': 'Hello! I\'m your Product Management assistant. I can help you with product documentation, roadmaps, and management guidelines. What would you like to know?',
+        'solution-analysts': 'Hello! I\'m your Solution Analysts assistant. I can help you with solution designs, analysis documentation, and technical requirements. How can I help?',
+      };
+      
       return res.json({
         success: true,
-        answer:
-          "Hello! I'm your document assistant. I can help you find information from your company policies and documents. What would you like to know?",
+        answer: kbGreetings[kbId] || 'Hello! How can I assist you today?',
         sources: [],
       });
     }
@@ -348,6 +355,58 @@ app.post("/api/chat", async (req, res) => {
       success: false,
       error: err.message,
     });
+  }
+});
+
+// ----------- Generate Chat Title using AI ----------- //
+app.post("/api/generate-title", async (req, res) => {
+  try {
+    const { messages } = req.body;
+    
+    if (!messages || messages.length === 0) {
+      return res.json({ title: "New Chat" });
+    }
+    
+    // Take first 1-3 user messages
+    const userMessages = Array.isArray(messages) ? messages.slice(0, 3) : [messages];
+    const combinedText = userMessages.join('. ');
+    
+    if (combinedText.length < 5) {
+      return res.json({ title: "New Chat" });
+    }
+    
+    const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+    
+    const chat = await groq.chat.completions.create({
+      messages: [
+        {
+          role: "system",
+          content: "You are a title generator. Generate a short, descriptive 3-5 word title for this conversation. Be concise and specific. Do not use quotes or punctuation at the end."
+        },
+        {
+          role: "user",
+          content: `Generate a title for this conversation: "${combinedText}"`
+        }
+      ],
+      model: MODEL_ID,
+      max_tokens: 20,
+      temperature: 0.3,
+    });
+    
+    let title = chat.choices[0]?.message?.content?.trim() || "New Chat";
+    
+    // Clean up title (remove quotes, periods, etc)
+    title = title.replace(/^["']|["']$/g, '').replace(/\.$/, '').trim();
+    
+    // Limit to 60 characters
+    if (title.length > 60) {
+      title = title.substring(0, 57) + '...';
+    }
+    
+    res.json({ title });
+  } catch (err) {
+    console.error("Title generation error:", err.message);
+    res.json({ title: "New Chat" });
   }
 });
 
