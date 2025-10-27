@@ -107,6 +107,7 @@ export const AuthProvider = ({ children }) => {
 
     // Create user session
     const userData = {
+      id: username,  // Use username as unique ID for storage
       username: username,
       name: userRecord.name,
       email: userRecord.email,
@@ -118,12 +119,16 @@ export const AuthProvider = ({ children }) => {
     setUser(userData)
     localStorage.setItem('user', JSON.stringify(userData))
     
+    // Trigger ChatContext to default to common-policies (handled in ChatProvider useEffect)
+    localStorage.setItem('loginTrigger', Date.now().toString())
+    
     return true
   }
 
   const logout = () => {
     setUser(null)
     localStorage.removeItem('user')
+    localStorage.removeItem('loginTrigger')
   }
 
   const value = {

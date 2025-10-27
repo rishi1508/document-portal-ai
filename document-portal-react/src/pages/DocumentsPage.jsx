@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
+import { useChat } from '../contexts/ChatContext'  // Added for currentKB
 import { useSettings } from '../contexts/SettingsContext'
 import Sidebar from '../components/layout/Sidebar'
 import Header from '../components/layout/Header'
@@ -13,7 +14,8 @@ import ConfirmModal from '../components/modals/ConfirmModal'
 
 const DocumentsPage = () => {
   const { user } = useAuth()
-  const { currentKB, sidebarCollapsed } = useSettings()
+  const { currentKB } = useChat()  // From ChatContext (syncs with chat KB)
+  const { sidebarCollapsed } = useSettings()  // Only sidebar from Settings
   const [documents, setDocuments] = useState([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
@@ -28,13 +30,13 @@ const DocumentsPage = () => {
 
   useEffect(() => {
     loadDocuments()
-  }, [currentKB])
+  }, [currentKB])  // Depends on chat's currentKB
 
   const loadDocuments = async () => {
     setLoading(true)
     setSelectedDocs(new Set())
     try {
-      const docs = await listDocuments(currentKB)
+      const docs = await listDocuments(currentKB)  // Uses chat KB
       setDocuments(docs)
     } catch (err) {
       console.error('Failed to load documents:', err)
@@ -297,9 +299,6 @@ const DocumentsPage = () => {
               </div>
             </div>
           </div>
-
-
-
 
           {/* Table Container - FIXED: Full width, proper scroll */}
           <div className="flex-1 overflow-y-auto">

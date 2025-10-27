@@ -26,8 +26,8 @@ const Sidebar = () => {
   const navigate = useNavigate()
   const location = useLocation()
   const { user, logout } = useAuth()
-  const { sidebarCollapsed, toggleSidebar, currentKB, setCurrentKB } = useSettings()
-  const { startNewChat } = useChat()
+  const { sidebarCollapsed, toggleSidebar } = useSettings()  // Removed currentKB from here
+  const { currentKB, switchKB, startNewChat } = useChat()  // Now from ChatContext
 
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [uploadOpen, setUploadOpen] = useState(false)
@@ -51,6 +51,16 @@ const Sidebar = () => {
     e.stopPropagation()
     startNewChat()
     navigate('/chat')
+  }
+
+  // Updated: Conditional navigation - only go to /chat if not on /documents
+  const handleKBClick = (kbId) => (e) => {
+    e.stopPropagation()
+    switchKB(kbId)  // Handles create/restore and updates currentChatId
+    if (location.pathname !== '/documents') {
+      navigate('/chat')  // URL sync in ChatPage will append ID
+    }
+    // On /documents: switchKB triggers auto-reload via useEffect in DocumentsPage
   }
 
   const handleLogout = () => logout()
@@ -130,7 +140,7 @@ const Sidebar = () => {
                   label="AI Chat"
                   shortLabel="AI"
                   collapsed={sidebarCollapsed}
-                  active={isActive('/chat')}
+                  active={location.pathname.startsWith('/chat')}
                   onClick={(e) => {
                     e.stopPropagation()
                     navigate('/chat')
@@ -145,7 +155,7 @@ const Sidebar = () => {
                     }}
                     className={
                       'flex-1 flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all ' +
-                      (isActive('/chat') 
+                      (location.pathname.startsWith('/chat') 
                         ? 'bg-primary-500/20 text-primary-500' 
                         : 'text-text-secondary hover:bg-dark-hover hover:text-text-primary')
                     }
@@ -225,15 +235,26 @@ const Sidebar = () => {
                 return (
                   <button
                     key={kbId}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      setCurrentKB(kbId)
-                    }}
-                    className={'w-full transition-colors ' + (sidebarCollapsed ? 'group flex flex-col items-center gap-1 px-2 py-3 filter hover:brightness-95 active:brightness-90' : 'flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-dark-hover') + (isKBActive && !sidebarCollapsed ? ' bg-primary-500/20' : '')}
+                    onClick={handleKBClick(kbId)}  // Uses updated conditional logic
+                    className={
+                      'w-full transition-colors ' + 
+                      (sidebarCollapsed 
+                        ? 'group flex flex-col items-center gap-1 px-2 py-3 filter hover:brightness-95 active:brightness-90' 
+                        : 'flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-dark-hover') + 
+                      (isKBActive && !sidebarCollapsed ? ' bg-primary-500/20' : '')
+                    }
                     title={kb.name}
                   >
-                    <Icon className={(isKBActive ? 'text-primary-500' : 'text-text-secondary') + ' ' + (sidebarCollapsed ? 'w-6 h-6' : 'w-5 h-5') + ' group-hover:text-text-primary'} />
-                    <span className={(sidebarCollapsed ? 'text-[10px] text-center leading-tight ' + (isKBActive ? 'text-primary-500 font-medium' : 'text-text-secondary') : 'flex-1 text-left text-sm ' + (isKBActive ? 'text-primary-500 font-medium' : 'text-text-secondary')) + ' group-hover:text-text-primary'}>
+                    <Icon className={
+                      (isKBActive ? 'text-primary-500' : 'text-text-secondary') + ' ' + 
+                      (sidebarCollapsed ? 'w-6 h-6' : 'w-5 h-5') + ' group-hover:text-text-primary'
+                    } />
+                    <span className={
+                      (sidebarCollapsed 
+                        ? 'text-[10px] text-center leading-tight ' + (isKBActive ? 'text-primary-500 font-medium' : 'text-text-secondary') 
+                        : 'flex-1 text-left text-sm ' + (isKBActive ? 'text-primary-500 font-medium' : 'text-text-secondary')
+                      ) + ' group-hover:text-text-primary'
+                    }>
                       {sidebarCollapsed ? kb.name.split(' ')[0] : kb.name}
                     </span>
                   </button>
@@ -342,7 +363,7 @@ const NavItem = ({ icon: Icon, label, shortLabel, collapsed, onClick, badge, act
       <Icon className="w-5 h-5 flex-shrink-0" />
       <span className="text-sm flex-1 text-left">{label}</span>
       {badge > 0 && (
-        <span className="bg-primary-500 text-text-primary text-xs font-bold rounded-full flex items-center justify-center min-w-[18px] h-18px] px-1">
+        <span className="bg-primary-500 text-text-primary text-xs font-bold rounded-full flex items-center justify-center min-w-[18px] h-[18px] px-1">
           {badge > 99 ? '99+' : badge}
         </span>
       )}

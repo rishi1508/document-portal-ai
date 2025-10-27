@@ -1,15 +1,16 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { useChat } from '../../contexts/ChatContext'
 import { useSettings } from '../../contexts/SettingsContext'
-import { Send } from 'lucide-react'
+import { Send, Loader } from 'lucide-react'  // Added Loader
 import toast from 'react-hot-toast'
 
 const CHAT_ENDPOINT = import.meta.env.VITE_CHAT_API || 'http://localhost:3200/api/chat'
 
 const InputArea = () => {
   const [message, setMessage] = useState('')
-  const { addMessage, isLoading, setIsLoading, getConversationHistory } = useChat()
-  const { sidebarCollapsed, currentKB } = useSettings()
+  const [isSending, setIsSending] = useState(false)  // Local loading
+  const { addMessage, getConversationHistory, currentKB } = useChat()
+  const { sidebarCollapsed } = useSettings()
   const textareaRef = useRef(null)
 
   useEffect(() => {
@@ -22,23 +23,25 @@ const InputArea = () => {
   const handleSubmit = async (e) => {
     e.preventDefault()
 
-    if (!message.trim() || isLoading) return
+    if (!message.trim() || isSending) return
 
     const userMessage = message.trim()
     setMessage('')
+    setIsSending(true)  // Local only
 
     addMessage('user', userMessage)
-    setIsLoading(true)
 
     try {
       console.log('Querying Chat API:', userMessage, '| KB:', currentKB)
+
+      const history = getConversationHistory() || []
 
       const response = await fetch(CHAT_ENDPOINT, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           query: userMessage,
-          conversationHistory: getConversationHistory(),
+          conversationHistory: history,
           kbId: currentKB
         })
       })
@@ -57,8 +60,6 @@ const InputArea = () => {
       } else {
         throw new Error(data.error || 'No answer received')
       }
-
-      setIsLoading(false)
     } catch (error) {
       console.error('Error querying Chat API:', error)
       toast.error('Failed to get response from AI')
@@ -67,7 +68,8 @@ const InputArea = () => {
         `I'm having trouble connecting to the knowledge base right now. Error: ${error.message}`,
         []
       )
-      setIsLoading(false)
+    } finally {
+      setIsSending(false)  // End local loading
     }
   }
 
@@ -95,15 +97,19 @@ const InputArea = () => {
               rows={1}
               className="flex-1 bg-transparent border-none outline-none text-text-primary resize-none py-2 max-h-[200px]"
               style={{ minHeight: '24px' }}
-              disabled={isLoading}
+              disabled={isSending}  // Local disable
             />
 
             <button
               type="submit"
-              disabled={!message.trim() || isLoading}
-              className="bg-gradient-to-r from-primary-500 to-primary-600 hover:from-primary-600 hover:to-primary-700 disabled:opacity-50 disabled:cursor-not-allowed text-text-primary p-2 rounded-lg transition-all flex-shrink-0"
+              disabled={!message.trim() || isSending}
+              className="bg-gradient-to-r from-primary-500 to-primary-600 hover:from-primary-600 hover:to-primary-700 disabled:opacity-50 disabled:cursor-not-allowed text-text-primary p-2 rounded-lg transition-all flex-shrink-0 flex items-center justify-center"
             >
-              <Send className="w-5 h-5" />
+              {isSending ? (
+                <Loader className="w-4 h-4 animate-spin" />
+              ) : (
+                <Send className="w-5 h-5" />
+              )}
             </button>
           </div>
         </form>
