@@ -1,15 +1,15 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { useChat } from '../../contexts/ChatContext'
 import { useSettings } from '../../contexts/SettingsContext'
-import { Send, Loader } from 'lucide-react'  // Added Loader
+import { Send, Loader } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 const CHAT_ENDPOINT = import.meta.env.VITE_CHAT_API || 'http://localhost:3200/api/chat'
 
 const InputArea = () => {
   const [message, setMessage] = useState('')
-  const [isSending, setIsSending] = useState(false)  // Local loading
-  const { addMessage, getConversationHistory, currentKB } = useChat()
+  const [isSending, setIsSending] = useState(false)
+  const { addMessage, updateStreamingMessage, getConversationHistory, currentKB } = useChat()
   const { sidebarCollapsed } = useSettings()
   const textareaRef = useRef(null)
 
@@ -27,9 +27,12 @@ const InputArea = () => {
 
     const userMessage = message.trim()
     setMessage('')
-    setIsSending(true)  // Local only
+    setIsSending(true)
 
     addMessage('user', userMessage)
+
+    // Add thinking placeholder
+    const thinkingMsg = addMessage('assistant', '', [], true)  // tempMsg=true
 
     try {
       console.log('Querying Chat API:', userMessage, '| KB:', currentKB)
@@ -42,7 +45,8 @@ const InputArea = () => {
         body: JSON.stringify({ 
           query: userMessage,
           conversationHistory: history,
-          kbId: currentKB
+          kbId: currentKB,
+          stream: true  // Request streaming
         })
       })
 
@@ -52,24 +56,43 @@ const InputArea = () => {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`)
       }
 
-      const data = await response.json()
-      console.log('Response data:', data)
+      // Stream response
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let accumulatedAnswer = ''
+      let sources = []
 
-      if (data.success && data.answer) {
-        addMessage('assistant', data.answer, data.sources || [])
-      } else {
-        throw new Error(data.error || 'No answer received')
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        const chunk = decoder.decode(value, { stream: true })
+        const lines = chunk.split('\n').filter(l => l.trim())
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = JSON.parse(line.slice(6))
+            if (data.token) {
+              accumulatedAnswer += data.token
+              updateStreamingMessage(accumulatedAnswer, sources)
+            }
+            if (data.done) {
+              sources = data.sources || []
+              updateStreamingMessage(accumulatedAnswer, sources)
+            }
+          }
+        }
       }
     } catch (error) {
       console.error('Error querying Chat API:', error)
       toast.error('Failed to get response from AI')
 
-      addMessage('assistant',
+      updateStreamingMessage(
         `I'm having trouble connecting to the knowledge base right now. Error: ${error.message}`,
         []
       )
     } finally {
-      setIsSending(false)  // End local loading
+      setIsSending(false)
     }
   }
 
@@ -97,7 +120,7 @@ const InputArea = () => {
               rows={1}
               className="flex-1 bg-transparent border-none outline-none text-text-primary resize-none py-2 max-h-[200px]"
               style={{ minHeight: '24px' }}
-              disabled={isSending}  // Local disable
+              disabled={isSending}
             />
 
             <button

@@ -12,7 +12,7 @@ const ChatContainer = () => {
   // Show loading if context loading
   if (isLoading) {
     return (
-      <div className="flex-1 flex flex-col min-h-0 h-full w-full overflow-y-auto pt-24 pb-40 px-4 flex items-center justify-center">
+      <div className="flex-1 flex flex-col min-h-0 h-full w-full overflow-y-auto pt-24 pb-40 px-4 items-center justify-center">
         <div className="text-center">Initializing chat...</div>
       </div>
     )

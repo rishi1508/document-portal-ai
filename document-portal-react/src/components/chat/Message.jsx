@@ -2,6 +2,7 @@ import React from 'react'
 import { User, Bot, FileText, ExternalLink } from 'lucide-react'
 import { format } from 'date-fns'
 import toast from 'react-hot-toast'
+import ThinkingIndicator from './ThinkingIndicator'
 
 const Message = ({ message }) => {
   const isUser = message.type === 'user'
@@ -141,7 +142,13 @@ const Message = ({ message }) => {
             : 'bg-dark-secondary border border-dark-tertiary text-text-primary'
         }`}>
           <div className="whitespace-pre-wrap">
-            {isUser ? message.content : formatContent(message.content)}
+            {isUser ? (
+              message.content
+            ) : message.content.length === 0 ? (
+              <ThinkingIndicator />
+            ) : (
+              formatContent(message.content)
+            )}
           </div>
         </div>
 
