@@ -97,6 +97,31 @@ async function ensureS3KeyIndex(collectionName) {
   }
 }
 
+// Check if document already exists in Qdrant
+async function isDocumentIndexed(collectionName, s3Key) {
+  try {
+    const scrollResult = await qdrant.scroll(collectionName, {
+      filter: {
+        must: [
+          {
+            key: "s3Key",
+            match: {
+              value: s3Key
+            }
+          }
+        ]
+      },
+      limit: 1,
+      with_payload: false,
+      with_vector: false
+    });
+
+    return scrollResult.points.length > 0;
+  } catch (err) {
+    return false;
+  }
+}
+
 // Initialize all collections on startup
 async function initializeAllCollections() {
   try {
@@ -169,6 +194,19 @@ app.post("/api/documents", (req, res) => {
       const kbId = s3Key.split('/')[0];
       const collectionName = getCollectionForKB(kbId);
       await ensureQdrantCollection(collectionName);
+
+      // Check if already indexed
+      const alreadyIndexed = await isDocumentIndexed(collectionName, s3Key);
+      if (alreadyIndexed) {
+        console.log(`Document already indexed: ${s3Key}`);
+        return res.json({
+          success: true,
+          message: "Document already indexed (skipped duplicate)",
+          s3Key,
+          chunksCreated: 0,
+          skipped: true
+        });
+      }
 
       // 4. Generate embeddings and upsert to Qdrant
       for (let i = 0; i < chunks.length; i++) {
