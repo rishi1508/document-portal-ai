@@ -4,7 +4,7 @@ import { useSettings } from '../../contexts/SettingsContext'
 import { Send } from 'lucide-react'
 import toast from 'react-hot-toast'
 
-const BEDROCK_QUERY_ENDPOINT = import.meta.env.VITE_API_BASE + '/query-bedrock'
+const CHAT_ENDPOINT = import.meta.env.VITE_CHAT_API || 'http://localhost:3200/api/chat'
 
 const InputArea = () => {
  const [message, setMessage] = useState('')
@@ -33,7 +33,7 @@ const InputArea = () => {
  try {
  console.log('Querying Bedrock:', userMessage)
 
- const response = await fetch(BEDROCK_QUERY_ENDPOINT, {
+ const response = await fetch(CHAT_ENDPOINT, {
  method: 'POST',
  headers: { 'Content-Type': 'application/json' },
  body: JSON.stringify({ query: userMessage })
