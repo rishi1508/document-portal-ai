@@ -67,10 +67,32 @@ async function ensureQdrantCollection() {
   }
 }
 
+// Ensure s3Key field index exists for filtering
+async function ensureS3KeyIndex() {
+  try {
+    console.log(`Ensuring s3Key index exists in Qdrant collection...`);
+    
+    await qdrant.createPayloadIndex(QDRANT_COLLECTION, {
+      field_name: "s3Key",
+      field_schema: "keyword"
+    });
+    
+    console.log(`✓ s3Key index created or already exists`);
+  } catch (err) {
+    // Index might already exist
+    if (err.message && err.message.includes('already exists')) {
+      console.log(`✓ s3Key index already exists`);
+    } else {
+      console.error(`Warning: Could not create s3Key index:`, err.message);
+    }
+  }
+}
+
 // Initialize collection on startup
 (async () => {
   try {
     await ensureQdrantCollection();
+    await ensureS3KeyIndex();
   } catch (err) {
     console.error("Qdrant initialization error:", err);
   }
