@@ -497,9 +497,9 @@ app.post("/api/index", async (req, res) => {
 });
 
 // ----------- Delete Document from S3 and Qdrant ----------- //
-app.delete("/api/documents/:s3Key(*)", async (req, res) => {
+app.delete("/api/documents/*", async (req, res) => {
   try {
-    const s3Key = req.params.s3Key;
+    const s3Key = req.params[0]; // Extract from wildcard
     if (!s3Key) {
       return res.status(400).json({ error: "Missing s3Key" });
     }
