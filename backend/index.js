@@ -18,9 +18,22 @@ const MAX_FILE_SIZE_BYTES = 8 * 1024 * 1024;
 
 const QDRANT_URL = process.env.QDRANT_URL;
 const QDRANT_API_KEY = process.env.QDRANT_API_KEY;
-const QDRANT_COLLECTION = process.env.QDRANT_COLLECTION || "documents";
 const QDRANT_VECTOR_SIZE = parseInt(process.env.QDRANT_VECTOR_SIZE || "768", 10);
 const QDRANT_DISTANCE = process.env.QDRANT_DISTANCE || "Cosine";
+
+// Map knowledge base IDs to Qdrant collections
+const KB_TO_COLLECTION = {
+  'common-policies': 'kb_common',
+  'devops': 'kb_devops',
+  'platform-engineering': 'kb_platform',
+  'product-management': 'kb_product',
+  'solution-analysts': 'kb_solution',
+};
+
+// Map S3 prefix to collection
+const getCollectionForKB = (kbId) => {
+  return KB_TO_COLLECTION[kbId] || 'kb_common';
+};
 
 const app = express();
 app.use(cors());
@@ -49,53 +62,58 @@ function chunkText(text, chunkSize = 1500, overlap = 200) {
   return chunks.length > 0 ? chunks : [text];
 }
 
-// Ensure Qdrant collection exists
-async function ensureQdrantCollection() {
+// Ensure Qdrant collection exists for a specific KB
+async function ensureQdrantCollection(collectionName) {
   try {
-    await qdrant.getCollection(QDRANT_COLLECTION);
-    console.log(`Qdrant collection "${QDRANT_COLLECTION}" exists`);
+    await qdrant.getCollection(collectionName);
+    console.log(`Qdrant collection "${collectionName}" exists`);
   } catch (err) {
-    console.log(`Creating Qdrant collection "${QDRANT_COLLECTION}"...`);
-    await qdrant.createCollection(QDRANT_COLLECTION, {
+    console.log(`Creating Qdrant collection "${collectionName}"...`);
+    await qdrant.createCollection(collectionName, {
       vectors: {
         size: QDRANT_VECTOR_SIZE,
         distance: QDRANT_DISTANCE,
       },
     });
-    console.log(`✓ Qdrant collection created`);
+    console.log(`✓ Qdrant collection "${collectionName}" created`);
   }
 }
 
 // Ensure s3Key field index exists for filtering
-async function ensureS3KeyIndex() {
+async function ensureS3KeyIndex(collectionName) {
   try {
-    console.log(`Ensuring s3Key index exists in Qdrant collection...`);
-
-    await qdrant.createPayloadIndex(QDRANT_COLLECTION, {
+    await qdrant.createPayloadIndex(collectionName, {
       field_name: "s3Key",
       field_schema: "keyword"
     });
-
-    console.log(`✓ s3Key index created or already exists`);
+    console.log(`✓ s3Key index created for "${collectionName}"`);
   } catch (err) {
-    // Index might already exist
     if (err.message && err.message.includes('already exists')) {
-      console.log(`✓ s3Key index already exists`);
+      console.log(`✓ s3Key index already exists for "${collectionName}"`);
     } else {
-      console.error(`Warning: Could not create s3Key index:`, err.message);
+      console.error(`Warning: Could not create s3Key index for "${collectionName}":`, err.message);
     }
   }
 }
 
-// Initialize collection on startup
-(async () => {
+// Initialize all collections on startup
+async function initializeAllCollections() {
   try {
-    await ensureQdrantCollection();
-    await ensureS3KeyIndex();
+    console.log('Initializing Qdrant collections...\n');
+    
+    for (const [kbId, collectionName] of Object.entries(KB_TO_COLLECTION)) {
+      await ensureQdrantCollection(collectionName);
+      await ensureS3KeyIndex(collectionName);
+    }
+    
+    console.log('\n✓ All collections initialized\n');
   } catch (err) {
     console.error("Qdrant initialization error:", err);
   }
-})();
+}
+
+// Initialize all collections on startup
+initializeAllCollections();
 
 // ----------- File Upload and Index Route ----------- //
 app.post("/api/documents", (req, res) => {
@@ -142,7 +160,10 @@ app.post("/api/documents", (req, res) => {
       console.log(`Created ${chunks.length} chunks for ${fileObj.name}`);
       let insertCount = 0;
 
-      await ensureQdrantCollection();
+      // Determine collection based on s3Key prefix
+      const kbId = s3Key.split('/')[0];
+      const collectionName = getCollectionForKB(kbId);
+      await ensureQdrantCollection(collectionName);
 
       // 4. Generate embeddings and upsert to Qdrant
       for (let i = 0; i < chunks.length; i++) {
@@ -150,7 +171,7 @@ app.post("/api/documents", (req, res) => {
           const embedding = await getEmbedding(chunks[i]);
           const pointId = uuidv4();
 
-          await qdrant.upsert(QDRANT_COLLECTION, {
+          await qdrant.upsert(collectionName, {
             wait: true,
             points: [
               {
@@ -167,7 +188,7 @@ app.post("/api/documents", (req, res) => {
             ],
           });
           insertCount++;
-          console.log(`Upserted chunk ${i + 1}/${chunks.length} with ID: ${pointId}`);
+          console.log(`Upserted chunk ${i + 1}/${chunks.length} to ${collectionName}`);
         } catch (err) {
           console.error(`Chunk upsert failed for chunk ${i}:`, err.message);
         }
@@ -211,7 +232,11 @@ app.get("/api/documents", async (req, res) => {
 // ----------- RAG Chat with Conversation History ----------- //
 app.post("/api/chat", async (req, res) => {
   try {
-    const { query, conversationHistory = [] } = req.body;
+    const { query, conversationHistory = [], kbId = 'common-policies' } = req.body;
+    
+    // Get collection for this KB
+    const collectionName = getCollectionForKB(kbId);
+    console.log(`Chat query for KB: ${kbId} → Collection: ${collectionName}`);
 
     // 1. Detect greetings
     const greetings = ["hi", "hello", "hey", "good morning", "good afternoon"];
@@ -225,10 +250,10 @@ app.post("/api/chat", async (req, res) => {
     }
 
     // 2. Perform RAG retrieval from Qdrant
-    await ensureQdrantCollection();
+    await ensureQdrantCollection(collectionName);
     const queryEmbedding = await getEmbedding(query);
 
-    const searchResults = await qdrant.search(QDRANT_COLLECTION, {
+    const searchResults = await qdrant.search(collectionName, {
       vector: queryEmbedding,
       limit: 3,
       with_payload: true,
@@ -253,7 +278,7 @@ app.post("/api/chat", async (req, res) => {
       .map((r) => r.payload?.text || "")
       .filter(Boolean)
       .join("\n\n---\n\n")
-      .slice(0, 6000); // Reduced to leave room for history
+      .slice(0, 6000);
 
     const answer = await runGroqRAGWithHistory(query, context, conversationHistory);
 
@@ -264,7 +289,7 @@ app.post("/api/chat", async (req, res) => {
       if (payload.s3Key && !uniqueSources.has(payload.s3Key)) {
         uniqueSources.set(
           payload.s3Key,
-          `${payload.title || "Unknown"} | ${payload.department || payload.s3Key.split('/')[0] || "Unknown"}`
+          `${payload.title || "Unknown"} | ${payload.s3Key.split('/')[0] || "Unknown"}`
         );
       }
     });
@@ -287,11 +312,10 @@ app.post("/api/chat", async (req, res) => {
 async function getConversationalAnswer(question, conversationHistory) {
   const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
   
-  // Validate and clean history
   const cleanHistory = (conversationHistory || [])
     .slice(-4)
     .filter(msg => msg && msg.role && msg.content && typeof msg.content === 'string')
-    .filter(msg => msg.content.length < 2000); // Skip overly long messages
+    .filter(msg => msg.content.length < 2000);
   
   const messages = [];
   
@@ -321,15 +345,13 @@ async function getConversationalAnswer(question, conversationHistory) {
 async function runGroqRAGWithHistory(question, context, conversationHistory) {
   const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
   
-  // Validate and clean history
   const cleanHistory = (conversationHistory || [])
     .slice(-3)
     .filter(msg => msg && msg.role && msg.content && typeof msg.content === 'string')
-    .filter(msg => msg.content.length < 2000); // Skip overly long messages
+    .filter(msg => msg.content.length < 2000);
   
   const messages = [];
   
-  // Add context as system message
   messages.push({
     role: "system",
     content: `You are a helpful assistant answering questions based on the provided context.
@@ -344,7 +366,6 @@ Instructions:
 - Remember previous parts of this conversation when relevant`
   });
   
-  // Add conversation history
   cleanHistory.forEach(msg => {
     messages.push({
       role: msg.role === 'user' ? 'user' : 'assistant',
@@ -352,7 +373,6 @@ Instructions:
     });
   });
   
-  // Add current question
   messages.push({
     role: "user",
     content: question.trim()
@@ -367,7 +387,6 @@ Instructions:
 
   return chat.choices[0]?.message?.content || "No answer generated.";
 }
-
 
 async function getGeneralAnswer(question) {
   const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
@@ -407,30 +426,6 @@ async function getEmbedding(text) {
   }
 }
 
-async function runGroqRAG(question, context) {
-  const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-  const prompt = `You are a helpful assistant answering questions based on the provided context.
-Context:
-${context}
-User Question: ${question}
-Instructions:
-- Answer based ONLY on the provided context
-- If the context doesn't contain the answer, say "The provided context does not contain information about this."
-- Be specific and cite relevant details from the context
-- Keep answers clear and concise
-
-Answer:`;
-
-  const chat = await groq.chat.completions.create({
-    messages: [{ role: "user", content: prompt }],
-    model: MODEL_ID,
-    max_tokens: 512,
-    temperature: 0.3,
-  });
-
-  return chat.choices[0]?.message?.content || "No answer generated.";
-}
-
 // Health check
 app.get("/api/health", async (req, res) => {
   try {
@@ -459,7 +454,6 @@ app.post("/api/index", async (req, res) => {
     const response = await s3Client.send(command);
     const buffer = Buffer.from(await response.Body.transformToByteArray());
 
-
     // Extract text
     let text = "";
     const ext = s3Key.split(".").pop().toLowerCase();
@@ -483,7 +477,10 @@ app.post("/api/index", async (req, res) => {
     console.log(`Created ${chunks.length} chunks for ${title}`);
     let insertCount = 0;
 
-    await ensureQdrantCollection();
+    // Determine collection based on s3Key prefix
+    const kbId = s3Key.split('/')[0];
+    const collectionName = getCollectionForKB(kbId);
+    await ensureQdrantCollection(collectionName);
 
     // Store each chunk with embedding in Qdrant
     for (let i = 0; i < chunks.length; i++) {
@@ -491,7 +488,7 @@ app.post("/api/index", async (req, res) => {
         const embedding = await getEmbedding(chunks[i]);
         const pointId = uuidv4();
 
-        await qdrant.upsert(QDRANT_COLLECTION, {
+        await qdrant.upsert(collectionName, {
           wait: true,
           points: [
             {
@@ -510,7 +507,7 @@ app.post("/api/index", async (req, res) => {
           ],
         });
         insertCount++;
-        console.log(`Upserted chunk ${i + 1}/${chunks.length} with ID: ${pointId}`);
+        console.log(`Upserted chunk ${i + 1}/${chunks.length} to ${collectionName}`);
       } catch (err) {
         console.error(`Chunk upsert failed for chunk ${i}:`, err.message);
       }
@@ -549,18 +546,19 @@ app.delete("/api/documents", async (req, res) => {
       console.log(`✓ Deleted from S3: ${s3Key}`);
     } catch (err) {
       console.error(`S3 delete failed:`, err.message);
-      // Continue to Qdrant deletion even if S3 fails
     }
 
     // 2. Delete all chunks from Qdrant matching this s3Key
     let deletedCount = 0;
     try {
-      await ensureQdrantCollection();
+      // Determine collection based on s3Key prefix
+      const kbId = s3Key.split('/')[0];
+      const collectionName = getCollectionForKB(kbId);
+      await ensureQdrantCollection(collectionName);
 
-      console.log(`[DEBUG] Attempting Qdrant delete for s3Key: ${s3Key}`);
+      console.log(`[DEBUG] Attempting Qdrant delete for s3Key: ${s3Key} in collection: ${collectionName}`);
 
-      // First, scroll to find all matching points
-      const scrollResult = await qdrant.scroll(QDRANT_COLLECTION, {
+      const scrollResult = await qdrant.scroll(collectionName, {
         filter: {
           must: [
             {
@@ -577,22 +575,20 @@ app.delete("/api/documents", async (req, res) => {
       });
 
       const pointIds = scrollResult.points.map(p => p.id);
-      console.log(`[DEBUG] Found ${pointIds.length} points to delete for s3Key: ${s3Key}`);
+      console.log(`[DEBUG] Found ${pointIds.length} points to delete`);
 
-      // Delete by IDs if any found
       if (pointIds.length > 0) {
-        await qdrant.delete(QDRANT_COLLECTION, {
+        await qdrant.delete(collectionName, {
           wait: true,
           points: pointIds
         });
         deletedCount = pointIds.length;
-        console.log(`✓ Deleted ${deletedCount} points from Qdrant for s3Key=${s3Key}`);
+        console.log(`✓ Deleted ${deletedCount} points from ${collectionName}`);
       } else {
         console.log(`⚠️ No Qdrant points found for s3Key=${s3Key}`);
       }
     } catch (err) {
       console.error(`[ERROR] Qdrant delete failed:`, err.message);
-      console.error(`[ERROR] Full error:`, err);
     }
 
     res.json({
@@ -606,7 +602,6 @@ app.delete("/api/documents", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log("Backend running on port", PORT);
