@@ -497,11 +497,11 @@ app.post("/api/index", async (req, res) => {
 });
 
 // ----------- Delete Document from S3 and Qdrant ----------- //
-app.delete("/api/documents/*", async (req, res) => {
+app.delete("/api/documents", async (req, res) => {
   try {
-    const s3Key = req.params[0]; // Extract from wildcard
+    const s3Key = req.query.key;
     if (!s3Key) {
-      return res.status(400).json({ error: "Missing s3Key" });
+      return res.status(400).json({ error: "Missing s3Key in query parameter" });
     }
 
     console.log(`Deleting document: ${s3Key}`);
@@ -518,7 +518,6 @@ app.delete("/api/documents/*", async (req, res) => {
     try {
       await ensureQdrantCollection();
       
-      // Use Qdrant's delete with filter
       await qdrant.delete(QDRANT_COLLECTION, {
         filter: {
           must: [

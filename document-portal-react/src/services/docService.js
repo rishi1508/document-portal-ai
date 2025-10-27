@@ -74,10 +74,9 @@ export const getDocumentDownloadUrl = async (s3Key) => {
 // Delete multiple documents from S3 and Qdrant
 export const deleteDocuments = async (keys) => {
   try {
-    // Delete each document individually via backend (removes from S3 + Qdrant)
     const deletePromises = keys.map(async (s3Key) => {
       const response = await fetch(
-        `${BACKEND_DELETE_ENDPOINT}/${encodeURIComponent(s3Key)}`,
+        `${BACKEND_DELETE_ENDPOINT}?key=${encodeURIComponent(s3Key)}`,
         {
           method: "DELETE",
         }
