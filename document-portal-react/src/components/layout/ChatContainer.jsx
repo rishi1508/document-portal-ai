@@ -33,16 +33,16 @@ const ChatContainer = () => {
   }, [currentChat.id, currentChat.messages.length, addMessage])
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 h-full w-full overflow-hidden">
+    <div className="flex-1 flex flex-col min-h-0 h-full w-full overflow-y-auto pt-16 pb-40 px-4">
       {
         hasMessages ?
           (
-            <div className="flex-1 min-h-0 max-w-5xl mx-auto w-full px-4 overflow-y-auto pb-40">
+            <div className="max-w-5xl mx-auto w-full">
               <ChatMessages />
             </div>
           ) :
           (
-            <div className="flex flex-1 items-center justify-center min-h-0 px-4 pb-40">
+            <div className="flex flex-1 items-center justify-center min-h-0">
               <div className="max-w-5xl w-full">
                 <WelcomeScreen />
               </div>

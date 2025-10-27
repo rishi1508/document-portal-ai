@@ -13,6 +13,11 @@ const APPROVALS_BULK_ENDPOINT = `${API_BASE}/approvals/bulk`;
 const APPROVALS_PENDING_ENDPOINT = `${API_BASE}/approvals/pending`;
 const APPROVALS_APPROVE_ENDPOINT = `${API_BASE}/approvals`;
 
+// NEW: Backend endpoint for document deletion (Qdrant + S3)
+const BACKEND_DELETE_ENDPOINT = import.meta.env.VITE_CHAT_API ? 
+  import.meta.env.VITE_CHAT_API.replace('/api/chat', '/api/documents') :
+  'http://localhost:3200/api/documents';
+
 const load = (k, fallback) => {
   try {
     return JSON.parse(localStorage.getItem(k)) || fallback;
@@ -66,18 +71,28 @@ export const getDocumentDownloadUrl = async (s3Key) => {
   }
 };
 
-// Delete multiple documents
+// Delete multiple documents from S3 and Qdrant
 export const deleteDocuments = async (keys) => {
   try {
-    const keysParam = keys.join(",");
-    const response = await fetch(
-      `${DELETE_DOCS_ENDPOINT}?keys=${encodeURIComponent(keysParam)}`,
-      {
-        method: "DELETE",
+    // Delete each document individually via backend (removes from S3 + Qdrant)
+    const deletePromises = keys.map(async (s3Key) => {
+      const response = await fetch(
+        `${BACKEND_DELETE_ENDPOINT}/${encodeURIComponent(s3Key)}`,
+        {
+          method: "DELETE",
+        }
+      );
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `Failed to delete ${s3Key}`);
       }
-    );
-    if (!response.ok) throw new Error("Delete failed");
-    return response.json();
+      
+      return response.json();
+    });
+
+    const results = await Promise.all(deletePromises);
+    return { success: true, deleted: results.length };
   } catch (error) {
     console.error("Delete error:", error);
     throw error;

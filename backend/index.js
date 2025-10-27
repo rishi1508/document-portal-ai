@@ -184,14 +184,14 @@ app.get("/api/documents", async (req, res) => {
   }
 });
 
-// ----------- RAG Chat: Query via Groq, Retrieve from Qdrant ----------- //
+// ----------- RAG Chat with Conversation History ----------- //
 app.post("/api/chat", async (req, res) => {
   try {
-    const { query } = req.body;
+    const { query, conversationHistory = [] } = req.body;
 
     // 1. Detect greetings
     const greetings = ["hi", "hello", "hey", "good morning", "good afternoon"];
-    if (greetings.some((g) => query.toLowerCase().includes(g))) {
+    if (greetings.some((g) => query.toLowerCase().includes(g)) && conversationHistory.length === 0) {
       return res.json({
         success: true,
         answer:
@@ -211,26 +211,27 @@ app.post("/api/chat", async (req, res) => {
       with_vector: false,
     });
 
-    // Check relevance threshold (score closer to 1 is better for Cosine)
+    // Check relevance threshold
     const hasRelevantDocs = searchResults.some((r) => r.score >= 0.3);
 
     if (!hasRelevantDocs || searchResults.length === 0) {
-      // 3. Fallback to general knowledge
-      const generalAnswer = await getGeneralAnswer(query);
+      // Fallback with conversation context
+      const conversationalAnswer = await getConversationalAnswer(query, conversationHistory);
       return res.json({
         success: true,
-        answer: `⚠️ This information was not found in your documents.\n\nGeneral answer: ${generalAnswer}`,
+        answer: `⚠️ This information was not found in your documents.\n\n${conversationalAnswer}`,
         sources: [],
       });
     }
 
-    // 4. Standard RAG response
+    // 3. Standard RAG response with conversation history
     const context = searchResults
       .map((r) => r.payload?.text || "")
       .filter(Boolean)
       .join("\n\n---\n\n")
-      .slice(0, 8000);
-    const answer = await runGroqRAG(query, context);
+      .slice(0, 6000); // Reduced to leave room for history
+
+    const answer = await runGroqRAGWithHistory(query, context, conversationHistory);
 
     // Extract sources
     const uniqueSources = new Map();
@@ -257,6 +258,84 @@ app.post("/api/chat", async (req, res) => {
     });
   }
 });
+
+// Conversational answer without documents but with history
+async function getConversationalAnswer(question, conversationHistory) {
+  const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+  
+  // Build messages array with limited history (last 4 exchanges max)
+  const messages = [];
+  const recentHistory = conversationHistory.slice(-4);
+  
+  recentHistory.forEach(msg => {
+    messages.push({
+      role: msg.role === 'user' ? 'user' : 'assistant',
+      content: msg.content
+    });
+  });
+  
+  messages.push({
+    role: 'user',
+    content: question
+  });
+
+  const chat = await groq.chat.completions.create({
+    messages,
+    model: MODEL_ID,
+    max_tokens: 256,
+    temperature: 0.5,
+  });
+  
+  return chat.choices[0]?.message?.content || "I couldn't find an answer.";
+}
+
+// RAG with conversation history
+async function runGroqRAGWithHistory(question, context, conversationHistory) {
+  const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+  
+  // Build conversation messages (limit to last 3 exchanges to save tokens)
+  const messages = [];
+  const recentHistory = conversationHistory.slice(-3);
+  
+  // Add context as system message
+  messages.push({
+    role: "system",
+    content: `You are a helpful assistant answering questions based on the provided context.
+Context from documents:
+${context}
+
+Instructions:
+- Answer based ONLY on the provided context
+- If the context doesn't contain the answer, say "The provided context does not contain information about this."
+- Be specific and cite relevant details from the context
+- Keep answers clear and concise
+- Remember previous parts of this conversation when relevant`
+  });
+  
+  // Add conversation history
+  recentHistory.forEach(msg => {
+    messages.push({
+      role: msg.role === 'user' ? 'user' : 'assistant',
+      content: msg.content
+    });
+  });
+  
+  // Add current question
+  messages.push({
+    role: "user",
+    content: question
+  });
+
+  const chat = await groq.chat.completions.create({
+    messages,
+    model: MODEL_ID,
+    max_tokens: 512,
+    temperature: 0.3,
+  });
+
+  return chat.choices[0]?.message?.content || "No answer generated.";
+}
+
 
 async function getGeneralAnswer(question) {
   const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
@@ -413,6 +492,58 @@ app.post("/api/index", async (req, res) => {
     });
   } catch (err) {
     console.error("Index error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ----------- Delete Document from S3 and Qdrant ----------- //
+app.delete("/api/documents/:s3Key(*)", async (req, res) => {
+  try {
+    const s3Key = req.params.s3Key;
+    if (!s3Key) {
+      return res.status(400).json({ error: "Missing s3Key" });
+    }
+
+    console.log(`Deleting document: ${s3Key}`);
+
+    // 1. Delete from S3
+    try {
+      await s3.deleteObject({ Bucket: S3_BUCKET, Key: s3Key }).promise();
+      console.log(`✓ Deleted from S3: ${s3Key}`);
+    } catch (err) {
+      console.error(`S3 delete failed:`, err.message);
+    }
+
+    // 2. Delete all chunks from Qdrant matching this s3Key
+    try {
+      await ensureQdrantCollection();
+      
+      // Use Qdrant's delete with filter
+      await qdrant.delete(QDRANT_COLLECTION, {
+        filter: {
+          must: [
+            {
+              key: "s3Key",
+              match: {
+                value: s3Key
+              }
+            }
+          ]
+        }
+      });
+      
+      console.log(`✓ Deleted from Qdrant: all chunks with s3Key=${s3Key}`);
+    } catch (err) {
+      console.error(`Qdrant delete failed:`, err.message);
+    }
+
+    res.json({
+      success: true,
+      message: "Document deleted successfully from S3 and Qdrant",
+      s3Key
+    });
+  } catch (err) {
+    console.error("Delete error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });

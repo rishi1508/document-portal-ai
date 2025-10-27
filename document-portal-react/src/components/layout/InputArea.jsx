@@ -8,7 +8,7 @@ const CHAT_ENDPOINT = import.meta.env.VITE_CHAT_API || 'http://localhost:3200/ap
 
 const InputArea = () => {
   const [message, setMessage] = useState('')
-  const { addMessage, isLoading, setIsLoading } = useChat()
+  const { addMessage, isLoading, setIsLoading, getConversationHistory } = useChat()
   const { sidebarCollapsed } = useSettings()
   const textareaRef = useRef(null)
 
@@ -36,7 +36,10 @@ const InputArea = () => {
       const response = await fetch(CHAT_ENDPOINT, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: userMessage })
+        body: JSON.stringify({ 
+          query: userMessage,
+          conversationHistory: getConversationHistory() // NEW: Send conversation history
+        })
       })
 
       console.log('Response status:', response.status)
