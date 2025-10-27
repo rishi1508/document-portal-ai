@@ -5,18 +5,22 @@ const pdfParse = require("pdf-parse");
 const formidable = require("formidable");
 const AWS = require("aws-sdk");
 const Groq = require("groq-sdk");
-const axios = require("axios");
 require("dotenv").config();
 const fetch = require("node-fetch");
 const { v4: uuidv4 } = require("uuid");
+const { QdrantClient } = require("@qdrant/js-client-rest");
 
 const S3_BUCKET = process.env.S3_BUCKET;
 const AWS_REGION = process.env.AWS_REGION;
 const PORT = process.env.PORT || 3200;
 const MODEL_ID = process.env.RAG_MODEL_ID || "llama-3.3-70b-versatile";
 const MAX_FILE_SIZE_BYTES = 8 * 1024 * 1024;
-const CHROMA_API = "http://localhost:8000/api/v1";
-const CHROMA_COLLECTION = "documents";
+
+const QDRANT_URL = process.env.QDRANT_URL;
+const QDRANT_API_KEY = process.env.QDRANT_API_KEY;
+const QDRANT_COLLECTION = process.env.QDRANT_COLLECTION || "documents";
+const QDRANT_VECTOR_SIZE = parseInt(process.env.QDRANT_VECTOR_SIZE || "768", 10);
+const QDRANT_DISTANCE = process.env.QDRANT_DISTANCE || "Cosine";
 
 const app = express();
 app.use(cors());
@@ -24,6 +28,12 @@ app.use(express.json());
 
 AWS.config.update({ region: AWS_REGION });
 const s3 = new AWS.S3();
+
+// Initialize Qdrant client
+const qdrant = new QdrantClient({
+  url: QDRANT_URL,
+  apiKey: QDRANT_API_KEY,
+});
 
 function chunkText(text, chunkSize = 1500, overlap = 200) {
   const chunks = [];
@@ -40,22 +50,31 @@ function chunkText(text, chunkSize = 1500, overlap = 200) {
   return chunks.length > 0 ? chunks : [text];
 }
 
-// ----------- Ensure Chroma Collection Exists ----------- //
-async function ensureCollection(name) {
-  let res = await axios.get(`${CHROMA_API}/collections`);
-  let exists = (res.data.collections || []).find(c => c.name === name);
-  if (exists) return exists;
+// Ensure Qdrant collection exists
+async function ensureQdrantCollection() {
   try {
-    res = await axios.post(`${CHROMA_API}/collections`, { name });
-    return res.data;
+    await qdrant.getCollection(QDRANT_COLLECTION);
+    console.log(`Qdrant collection "${QDRANT_COLLECTION}" exists`);
   } catch (err) {
-    if (err.response && err.response.data && String(err.response.data.error).includes('already exists')) {
-      return exists;
-    }
-    console.error('ChromaDB REST error:', err.response?.data || err.message || err);
-    throw err;
+    console.log(`Creating Qdrant collection "${QDRANT_COLLECTION}"...`);
+    await qdrant.createCollection(QDRANT_COLLECTION, {
+      vectors: {
+        size: QDRANT_VECTOR_SIZE,
+        distance: QDRANT_DISTANCE,
+      },
+    });
+    console.log(`✓ Qdrant collection created`);
   }
 }
+
+// Initialize collection on startup
+(async () => {
+  try {
+    await ensureQdrantCollection();
+  } catch (err) {
+    console.error("Qdrant initialization error:", err);
+  }
+})();
 
 // ----------- File Upload and Index Route ----------- //
 app.post("/api/documents", (req, res) => {
@@ -74,18 +93,13 @@ app.post("/api/documents", (req, res) => {
       const ext = (fileObj.name.split(".").pop() || "").toLowerCase();
 
       // 1. Upload to S3
-      const s3Key = `uploads/${Date.now()}_${fileObj.name.replace(
-        /\s+/g,
-        "_"
-      )}`;
-      await s3
-        .upload({
-          Bucket: S3_BUCKET,
-          Key: s3Key,
-          Body: buffer,
-          ContentType: fileObj.mimetype || fileObj.type,
-        })
-        .promise();
+      const s3Key = `uploads/${Date.now()}_${fileObj.name.replace(/\s+/g, "_")}`;
+      await s3.upload({
+        Bucket: S3_BUCKET,
+        Key: s3Key,
+        Body: buffer,
+        ContentType: fileObj.mimetype || fileObj.type,
+      }).promise();
 
       // 2. Extract text for embedding
       let text = "";
@@ -107,51 +121,36 @@ app.post("/api/documents", (req, res) => {
       console.log(`Created ${chunks.length} chunks for ${fileObj.name}`);
       let insertCount = 0;
 
-      // Ensure collection exists
-      await ensureCollection(CHROMA_COLLECTION);
+      await ensureQdrantCollection();
 
-      // 4. Generate embeddings and store each chunk via REST
+      // 4. Generate embeddings and upsert to Qdrant
       for (let i = 0; i < chunks.length; i++) {
         try {
           const embedding = await getEmbedding(chunks[i]);
-          const chunkId = uuidv4();
-          const payload = {
-            ids: [chunkId],
-            embeddings: [embedding],
-            metadatas: [
+          const pointId = uuidv4();
+          
+          await qdrant.upsert(QDRANT_COLLECTION, {
+            wait: true,
+            points: [
               {
-                title: fileObj.name,
-                s3Key,
-                chunkIndex: i,
-                totalChunks: chunks.length,
+                id: pointId,
+                vector: embedding,
+                payload: {
+                  text: chunks[i],
+                  title: fileObj.name,
+                  s3Key,
+                  chunkIndex: i,
+                  totalChunks: chunks.length,
+                },
               },
             ],
-            documents: [chunks[i]]
-          };
-          console.log("Adding chunkId to ChromaDB:", chunkId, "(payload ids):", payload.ids);
-          const resp = await axios.post(
-            `${CHROMA_API}/collections/${CHROMA_COLLECTION}/add`,
-            payload
-          );
-          console.log(`Chunk response status: ${resp.status}`);
+          });
           insertCount++;
+          console.log(`Upserted chunk ${i + 1}/${chunks.length} with ID: ${pointId}`);
         } catch (err) {
-          console.error(`Chunk add failed for chunk ${i}:`, err.response?.data || err.message);
+          console.error(`Chunk upsert failed for chunk ${i}:`, err.message);
         }
       }
-
-      // Print all doc titles in Chroma after add
-      const allDocs = await axios.post(
-        `${CHROMA_API}/collections/${CHROMA_COLLECTION}/get`,
-        {}
-      );
-      console.log(
-        "Current ChromaDB titles/keys:",
-        (allDocs.data.metadatas || [])
-          .map((x) => x && x.title)
-          .filter(Boolean)
-          .slice(0, 50)
-      );
 
       res.json({
         id: s3Key,
@@ -160,7 +159,7 @@ app.post("/api/documents", (req, res) => {
         chunksCreated: insertCount,
       });
     } catch (error) {
-      console.error("Upload/Index error:", error.response?.data || error.message);
+      console.error("Upload/Index error:", error.message);
       res.status(500).json({ error: error.message });
     }
   });
@@ -185,7 +184,7 @@ app.get("/api/documents", async (req, res) => {
   }
 });
 
-// ----------- RAG Chat: Query via Groq, Retrieve from Chroma ----------- //
+// ----------- RAG Chat: Query via Groq, Retrieve from Qdrant ----------- //
 app.post("/api/chat", async (req, res) => {
   try {
     const { query } = req.body;
@@ -201,27 +200,22 @@ app.post("/api/chat", async (req, res) => {
       });
     }
 
-    // 2. Perform RAG retrieval
-    await ensureCollection(CHROMA_COLLECTION);
-    const embedding = await getEmbedding(query);
-    const results = await axios
-      .post(`${CHROMA_API}/collections/${CHROMA_COLLECTION}/query`, {
-        query_embeddings: [embedding],
-        n_results: 10,
-      })
-      .then((r) => r.data);
+    // 2. Perform RAG retrieval from Qdrant
+    await ensureQdrantCollection();
+    const queryEmbedding = await getEmbedding(query);
+    
+    const searchResults = await qdrant.search(QDRANT_COLLECTION, {
+      vector: queryEmbedding,
+      limit: 10,
+      with_payload: true,
+      with_vector: false,
+    });
 
-    const hasRelevantDocs =
-      results.distances &&
-      results.distances[0] &&
-      results.distances[0].some((d) => d < 0.7);
+    // Check relevance threshold (score closer to 1 is better for Cosine)
+    const hasRelevantDocs = searchResults.some((r) => r.score >= 0.3);
 
-    if (
-      !hasRelevantDocs ||
-      !results.documents[0] ||
-      results.documents[0].length === 0
-    ) {
-      // 4. Fallback to general knowledge
+    if (!hasRelevantDocs || searchResults.length === 0) {
+      // 3. Fallback to general knowledge
       const generalAnswer = await getGeneralAnswer(query);
       return res.json({
         success: true,
@@ -230,24 +224,25 @@ app.post("/api/chat", async (req, res) => {
       });
     }
 
-    // 5. Standard RAG response
-    const context = results.documents.flat().join("\n\n---\n\n").slice(0, 8000);
+    // 4. Standard RAG response
+    const context = searchResults
+      .map((r) => r.payload?.text || "")
+      .filter(Boolean)
+      .join("\n\n---\n\n")
+      .slice(0, 8000);
     const answer = await runGroqRAG(query, context);
 
     // Extract sources
     const uniqueSources = new Map();
-    if (results.metadatas && results.metadatas[0]) {
-      results.metadatas[0].forEach((meta) => {
-        if (!uniqueSources.has(meta.s3Key)) {
-          uniqueSources.set(
-            meta.s3Key,
-            `${meta.title || "Unknown"}|${meta.s3Key || ""}|${
-              meta.department || ""
-            }`
-          );
-        }
-      });
-    }
+    searchResults.forEach((r) => {
+      const payload = r.payload || {};
+      if (payload.s3Key && !uniqueSources.has(payload.s3Key)) {
+        uniqueSources.set(
+          payload.s3Key,
+          `${payload.title || "Unknown"}|${payload.s3Key}|${payload.department || ""}`
+        );
+      }
+    });
 
     res.json({
       success: true,
@@ -255,11 +250,10 @@ app.post("/api/chat", async (req, res) => {
       sources: Array.from(uniqueSources.values()),
     });
   } catch (err) {
-    console.error("Chat error:", err.response?.data || err.message);
+    console.error("Chat error:", err.message);
     res.status(500).json({
       success: false,
       error: err.message,
-      ...(err.response?.data || {})
     });
   }
 });
@@ -326,14 +320,13 @@ Answer:`;
   return chat.choices[0]?.message?.content || "No answer generated.";
 }
 
+// Health check
 app.get("/api/health", async (req, res) => {
   try {
-    const collections = await axios
-      .get(`${CHROMA_API}/collections`)
-      .then((r) => r.data);
+    const collections = await qdrant.getCollections();
     res.json({
       status: "ok",
-      chroma: "connected",
+      qdrant: "connected",
       collections: collections.collections.map((c) => c.name),
     });
   } catch (err) {
@@ -341,6 +334,7 @@ app.get("/api/health", async (req, res) => {
   }
 });
 
+// ----------- Index Single Document from S3 ----------- //
 app.post("/api/index", async (req, res) => {
   try {
     const { s3Key } = req.body;
@@ -350,9 +344,7 @@ app.post("/api/index", async (req, res) => {
     console.log(`Indexing document: ${s3Key}`);
 
     // Download file from S3
-    const file = await s3
-      .getObject({ Bucket: S3_BUCKET, Key: s3Key })
-      .promise();
+    const file = await s3.getObject({ Bucket: S3_BUCKET, Key: s3Key }).promise();
     const buffer = file.Body;
 
     // Extract text
@@ -378,49 +370,39 @@ app.post("/api/index", async (req, res) => {
     console.log(`Created ${chunks.length} chunks for ${title}`);
     let insertCount = 0;
 
-    // Ensure collection exists
-    await ensureCollection(CHROMA_COLLECTION);
+    await ensureQdrantCollection();
 
-    // Store each chunk with embedding via REST
+    // Store each chunk with embedding in Qdrant
     for (let i = 0; i < chunks.length; i++) {
       try {
         const embedding = await getEmbedding(chunks[i]);
-        const chunkId = uuidv4();
-        const payload = {
-          ids: [chunkId],
-          embeddings: [embedding],
-          metadatas: [
+        const pointId = uuidv4();
+        
+        await qdrant.upsert(QDRANT_COLLECTION, {
+          wait: true,
+          points: [
             {
-              title,
-              s3Key,
-              department,
-              chunkIndex: i,
-              totalChunks: chunks.length,
-              lastModified: new Date().toISOString(),
+              id: pointId,
+              vector: embedding,
+              payload: {
+                text: chunks[i],
+                title,
+                s3Key,
+                department,
+                chunkIndex: i,
+                totalChunks: chunks.length,
+                lastModified: new Date().toISOString(),
+              },
             },
           ],
-          documents: [chunks[i]],
-        };
-        console.log("Adding chunkId to ChromaDB:", chunkId, "(payload ids):", payload.ids);
-        const resp = await axios.post(`${CHROMA_API}/collections/${CHROMA_COLLECTION}/add`, payload);
-        console.log(`Chunk response status: ${resp.status}`);
+        });
         insertCount++;
+        console.log(`Upserted chunk ${i + 1}/${chunks.length} with ID: ${pointId}`);
       } catch (err) {
-        console.error(`Chunk add failed for chunk ${i}:`, err.response?.data || err.message);
+        console.error(`Chunk upsert failed for chunk ${i}:`, err.message);
       }
     }
 
-    const allDocs = await axios.post(
-      `${CHROMA_API}/collections/${CHROMA_COLLECTION}/get`,
-      {}
-    );
-    console.log(
-      "Current ChromaDB titles/keys:",
-      (allDocs.data.metadatas || [])
-        .map((x) => x && x.title)
-        .filter(Boolean)
-        .slice(0, 50)
-    );
     console.log(`✓ Indexed: ${s3Key} (${insertCount} chunks)`);
 
     res.json({
@@ -430,7 +412,7 @@ app.post("/api/index", async (req, res) => {
       chunksCreated: insertCount,
     });
   } catch (err) {
-    console.error("Index error:", err.response?.data || err.message);
+    console.error("Index error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
