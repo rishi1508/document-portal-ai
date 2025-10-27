@@ -1,15 +1,15 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { useChat } from '../../contexts/ChatContext'
 import { useSettings } from '../../contexts/SettingsContext'
-import { Send, Loader } from 'lucide-react'
+import { Send, Loader } from 'lucide-react'  // Added Loader
 import toast from 'react-hot-toast'
 
 const CHAT_ENDPOINT = import.meta.env.VITE_CHAT_API || 'http://localhost:3200/api/chat'
 
 const InputArea = () => {
   const [message, setMessage] = useState('')
-  const [isSending, setIsSending] = useState(false)
-  const { addMessage, updateStreamingMessage, getConversationHistory, currentKB } = useChat()
+  const [isSending, setIsSending] = useState(false)  // Local loading
+  const { addMessage, getConversationHistory, currentKB } = useChat()
   const { sidebarCollapsed } = useSettings()
   const textareaRef = useRef(null)
 
@@ -27,12 +27,9 @@ const InputArea = () => {
 
     const userMessage = message.trim()
     setMessage('')
-    setIsSending(true)
+    setIsSending(true)  // Local only
 
     addMessage('user', userMessage)
-
-    // Add thinking placeholder
-    const thinkingMsg = addMessage('assistant', '', [], true)  // tempMsg=true
 
     try {
       console.log('Querying Chat API:', userMessage, '| KB:', currentKB)
@@ -42,11 +39,10 @@ const InputArea = () => {
       const response = await fetch(CHAT_ENDPOINT, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        body: JSON.stringify({ 
           query: userMessage,
           conversationHistory: history,
-          kbId: currentKB,
-          stream: true  // Request streaming
+          kbId: currentKB
         })
       })
 
@@ -56,61 +52,24 @@ const InputArea = () => {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`)
       }
 
-      // Stream response
-      const reader = response.body.getReader()
-      const decoder = new TextDecoder()
-      let accumulatedAnswer = ''
-      let sources = []
+      const data = await response.json()
+      console.log('Response data:', data)
 
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        const chunk = decoder.decode(value, { stream: true })
-        const lines = chunk.split('\n').filter(l => l.trim())
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = JSON.parse(line.slice(6))
-            if (data.token) {
-              accumulatedAnswer += data.token
-
-              // DETECT GIBBERISH MID-STREAM
-              if (accumulatedAnswer.length > 200 && isGibberish(accumulatedAnswer)) {
-                console.error('Gibberish detected, stopping stream')
-                updateStreamingMessage(
-                  "⚠️ Response error detected. Please rephrase your question or try again.",
-                  []
-                )
-                reader.cancel()  // Stop stream
-                break
-              }
-
-              updateStreamingMessage(accumulatedAnswer, sources)
-            }
-            if (data.done) {
-              sources = data.sources || []
-              updateStreamingMessage(accumulatedAnswer, sources)
-            }
-          }
-        }
-      }
-      // Helper function (add before handleSubmit):
-      function isGibberish(text) {
-        const gibberishTokens = ['visitinsn', 'buildfactory', 'externalactioncode', 'injected']
-        return gibberishTokens.some(token => text.toLowerCase().includes(token)) ||
-          (text.match(/--------/g) || []).length > 5
+      if (data.success && data.answer) {
+        addMessage('assistant', data.answer, data.sources || [])
+      } else {
+        throw new Error(data.error || 'No answer received')
       }
     } catch (error) {
       console.error('Error querying Chat API:', error)
       toast.error('Failed to get response from AI')
 
-      updateStreamingMessage(
+      addMessage('assistant',
         `I'm having trouble connecting to the knowledge base right now. Error: ${error.message}`,
         []
       )
     } finally {
-      setIsSending(false)
+      setIsSending(false)  // End local loading
     }
   }
 
@@ -138,7 +97,7 @@ const InputArea = () => {
               rows={1}
               className="flex-1 bg-transparent border-none outline-none text-text-primary resize-none py-2 max-h-[200px]"
               style={{ minHeight: '24px' }}
-              disabled={isSending}
+              disabled={isSending}  // Local disable
             />
 
             <button
