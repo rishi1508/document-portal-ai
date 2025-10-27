@@ -263,7 +263,7 @@ app.post("/api/chat", async (req, res) => {
     const collectionName = getCollectionForKB(kbId);
     console.log(`Chat query for KB: ${kbId} → Collection: ${collectionName}`);
 
-    // Detect greetings
+    // Greetings detection (unchanged)
     const greetings = ["hi", "hello", "hey", "good morning", "good afternoon"];
     if (greetings.some((g) => query.toLowerCase().includes(g)) && conversationHistory.length === 0) {
       const kbGreetings = {
@@ -281,21 +281,31 @@ app.post("/api/chat", async (req, res) => {
       });
     }
 
-    // Perform RAG retrieval (INCREASED: topK=8, threshold=0.4)
+    // QUERY EXPANSION
+    const expandedQuery = expandQuery(query);
+    console.log(`Expanded query: ${expandedQuery}`);
+
+    // VECTOR SEARCH
     await ensureQdrantCollection(collectionName);
-    const queryEmbedding = await getEmbedding(query);
+    const queryEmbedding = await getEmbedding(expandedQuery);
 
     const searchResults = await qdrant.search(collectionName, {
       vector: queryEmbedding,
-      limit: 8,  // Increased from 3
+      limit: 12,  // Increased
       with_payload: true,
       with_vector: false,
     });
 
-    // Lower threshold for more results
-    const hasRelevantDocs = searchResults.some((r) => r.score >= 0.4);  // Was 0.3
+    console.log(`Retrieved ${searchResults.length} chunks, top score: ${searchResults[0]?.score || 'N/A'}`);
 
-    if (!hasRelevantDocs || searchResults.length === 0) {
+    // KEYWORD BOOST
+    const keywordBoosted = boostByKeywords(searchResults, query);
+    console.log(`After keyword boost, top score: ${keywordBoosted[0]?.score || 'N/A'}`);
+
+    // LOWER THRESHOLD
+    const hasRelevantDocs = keywordBoosted.some((r) => r.score >= 0.3);  // Was 0.4
+
+    if (!hasRelevantDocs || keywordBoosted.length === 0) {
       const conversationalAnswer = await getConversationalAnswer(query, conversationHistory);
       return res.json({
         success: true,
@@ -305,32 +315,28 @@ app.post("/api/chat", async (req, res) => {
     }
 
     // Build context from top results
-    const context = searchResults
+    const context = keywordBoosted
+      .slice(0, 8)  // Use top 8 after boost
       .map((r) => r.payload?.text || "")
       .filter(Boolean)
       .join("\n\n---\n\n")
-      .slice(0, 8000);  // Increased context window
+      .slice(0, 8000);
 
-    // STREAMING MODE
+    // STREAMING or NON-STREAMING (unchanged)
     if (stream) {
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
 
-      const answer = await streamGroqRAGWithHistory(query, context, conversationHistory, res, searchResults);
+      await streamGroqRAGWithHistory(query, context, conversationHistory, res, keywordBoosted);
       
-      // Send completion
-      const uniqueSources = extractSources(searchResults);
+      const uniqueSources = extractSources(keywordBoosted.slice(0, 8));
       res.write(`data: ${JSON.stringify({ done: true, sources: uniqueSources })}\n\n`);
       res.end();
     } else {
-      // NON-STREAMING MODE (original)
       const answer = await runGroqRAGWithHistory(query, context, conversationHistory);
-
-      // Validate response (detect cop-outs)
       const validatedAnswer = await validateResponse(answer, query, context, conversationHistory);
-
-      const uniqueSources = extractSources(searchResults);
+      const uniqueSources = extractSources(keywordBoosted.slice(0, 8));
 
       res.json({
         success: true,
@@ -346,6 +352,59 @@ app.post("/api/chat", async (req, res) => {
     });
   }
 });
+
+// HELPER FUNCTIONS (add after getEmbedding):
+
+function expandQuery(query) {
+  const expansions = {
+    'leaves': 'leaves holidays time off vacation',
+    'october': 'october oct 10th month',
+    'november': 'november nov 11th month',
+    'december': 'december dec 25th christmas',
+    'laptop': 'laptop device computer hardware',
+    'switch company': 'resign resignation leave employment quit notice period',
+    'lose': 'lose lost missing theft stolen'
+  };
+
+  let expanded = query.toLowerCase();
+  Object.entries(expansions).forEach(([term, synonyms]) => {
+    if (expanded.includes(term)) {
+      expanded += ' ' + synonyms.split(' ').slice(0, 3).join(' ');
+    }
+  });
+
+  return expanded.length > query.length ? expanded : query;
+}
+
+function boostByKeywords(results, query) {
+  const queryTerms = query.toLowerCase()
+    .replace(/[^\w\s]/g, '')
+    .split(/\s+/)
+    .filter(term => term.length > 2);
+
+  return results.map(result => {
+    const text = (result.payload?.text || '').toLowerCase();
+    const title = (result.payload?.title || '').toLowerCase();
+    
+    let keywordScore = 0;
+    queryTerms.forEach(term => {
+      const textMatches = (text.match(new RegExp(term, 'g')) || []).length;
+      const titleMatches = (title.match(new RegExp(term, 'g')) || []).length;
+      
+      keywordScore += textMatches * 0.05;
+      keywordScore += titleMatches * 0.2;
+    });
+
+    const boostedScore = result.score + Math.min(keywordScore, 0.3);
+    
+    return {
+      ...result,
+      score: boostedScore,
+      originalScore: result.score,
+      keywordBoost: keywordScore
+    };
+  }).sort((a, b) => b.score - a.score);
+}
 
 // Extract unique sources
 function extractSources(searchResults) {
