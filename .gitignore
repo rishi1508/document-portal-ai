@@ -54,3 +54,4 @@ samconfig.toml
 .cache/
 .temp/
 .tmp/
+document-portal-dev_accessKeys.csv
