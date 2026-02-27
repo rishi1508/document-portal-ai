@@ -55,3 +55,4 @@ samconfig.toml
 .temp/
 .tmp/
 document-portal-dev_accessKeys.csv
+backend.tar.gz
