@@ -6,7 +6,6 @@ const ChatMessages = () => {
   const { currentChat } = useChat()
   const messagesEndRef = useRef(null)
 
-  // Safe access: fallback to empty array
   const messages = currentChat?.messages || []
 
   const scrollToBottom = () => {
@@ -15,12 +14,12 @@ const ChatMessages = () => {
 
   useEffect(() => {
     scrollToBottom()
-  }, [messages])  // Depend on messages array for re-scroll on changes
+  }, [messages])
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="max-w-4xl mx-auto space-y-5 py-2">
       {messages.map((message, index) => (
-        <Message key={`${message.timestamp}-${index}`} message={message} />  // Better key: timestamp + index
+        <Message key={`${message.timestamp}-${index}`} message={message} />
       ))}
       <div ref={messagesEndRef} />
     </div>

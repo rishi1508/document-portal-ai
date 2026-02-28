@@ -6,7 +6,8 @@ import { useChat } from '../../contexts/ChatContext'
 import { KNOWLEDGE_BASES, ROLE_PERMISSIONS } from '../../config/knowledgeBases'
 import {
   Brain, ChevronRight, FolderOpen, MessageSquare, History,
-  Upload, Settings, LogOut, Shield, Server, Lightbulb, Bell, CheckCircle2, Plus
+  Upload, Settings, LogOut, Shield, Server, Lightbulb, CheckCircle2, Plus,
+  LayoutDashboard, Sparkles, Database
 } from 'lucide-react'
 import SettingsModal from '../modals/SettingsModal'
 import UploadModal from '../modals/UploadModal'
@@ -20,14 +21,15 @@ const iconMap = {
   Server: Server,
   Lightbulb: Lightbulb,
   Shield: Shield,
+  FileText: Database,
 }
 
 const Sidebar = () => {
   const navigate = useNavigate()
   const location = useLocation()
   const { user, logout } = useAuth()
-  const { sidebarCollapsed, toggleSidebar } = useSettings()  // Removed currentKB from here
-  const { currentKB, switchKB, startNewChat } = useChat()  // Now from ChatContext
+  const { sidebarCollapsed, toggleSidebar } = useSettings()
+  const { currentKB, switchKB, startNewChat } = useChat()
 
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [uploadOpen, setUploadOpen] = useState(false)
@@ -40,6 +42,7 @@ const Sidebar = () => {
   const allowedKBs = permissions.knowledgeBases
 
   const isActive = (path) => location.pathname === path
+  const isActivePrefix = (path) => location.pathname.startsWith(path)
 
   const handleSidebarClick = (e) => {
     if (!sidebarCollapsed) return
@@ -53,14 +56,12 @@ const Sidebar = () => {
     navigate('/chat')
   }
 
-  // Updated: Conditional navigation - only go to /chat if not on /documents
   const handleKBClick = (kbId) => (e) => {
     e.stopPropagation()
-    switchKB(kbId)  // Handles create/restore and updates currentChatId
+    switchKB(kbId)
     if (location.pathname !== '/documents') {
-      navigate('/chat')  // URL sync in ChatPage will append ID
+      navigate('/chat')
     }
-    // On /documents: switchKB triggers auto-reload via useEffect in DocumentsPage
   }
 
   const handleLogout = () => logout()
@@ -71,104 +72,99 @@ const Sidebar = () => {
         onClick={handleSidebarClick}
         className={
           'fixed left-0 top-0 h-screen border-r border-dark-tertiary flex flex-col transition-all duration-300 z-50 ' +
-          (sidebarCollapsed ? 'w-20 bg-dark-secondary hover:bg-dark-secondary/80 cursor-pointer'
-            : 'w-72 bg-dark-secondary/80')
+          (sidebarCollapsed
+            ? 'w-20 bg-dark-secondary cursor-pointer'
+            : 'w-72 bg-dark-secondary')
         }
       >
-        {/* Header */}
-        <div className="p-6 border-b border-dark-tertiary flex items-center justify-between flex-shrink-0">
+        {/* Logo */}
+        <div className="h-14 px-4 border-b border-dark-tertiary flex items-center justify-between flex-shrink-0">
           {sidebarCollapsed ? (
             <button
-              onClick={(e) => {
-                e.stopPropagation()
-                toggleSidebar()
-              }}
+              onClick={(e) => { e.stopPropagation(); toggleSidebar() }}
               className="w-full flex justify-center p-2 hover:bg-dark-hover rounded-lg transition-all"
               title="Expand Sidebar"
             >
-              <ChevronRight className="w-5 h-5 text-text-secondary" />
+              <Brain className="w-5 h-5 text-primary-500" />
             </button>
           ) : (
             <>
-              <div className="flex items-center gap-3 overflow-hidden">
-                <Brain className="w-6 h-6 text-primary-500 flex-shrink-0" />
-                <span className="text-xl font-bold bg-gradient-to-r from-primary-500 to-secondary-500 bg-clip-text text-transparent whitespace-nowrap">
+              <div className="flex items-center gap-2.5 overflow-hidden">
+                <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-primary-500 to-primary-700 flex items-center justify-center flex-shrink-0">
+                  <Brain className="w-4 h-4 text-white" />
+                </div>
+                <span className="text-base font-bold gradient-text whitespace-nowrap">
                   DocuMind
                 </span>
               </div>
               <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  toggleSidebar()
-                }}
-                className="p-2 hover:bg-dark-hover rounded-lg transition-all"
+                onClick={(e) => { e.stopPropagation(); toggleSidebar() }}
+                className="p-1.5 hover:bg-dark-hover rounded-lg transition-all"
                 title="Collapse Sidebar"
               >
-                <ChevronRight className="w-5 h-5 text-text-secondary transform rotate-180" />
+                <ChevronRight className="w-4 h-4 text-text-muted transform rotate-180" />
               </button>
             </>
           )}
         </div>
 
         <nav
-          className="flex-1 p-4 overflow-y-auto scrollbar-hide"
+          className="flex-1 px-3 py-3 overflow-y-auto scrollbar-hide"
           style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
         >
           {/* Main Navigation */}
-          <div className="mb-6">
+          <div className="mb-4">
             {!sidebarCollapsed && (
-              <h3 className="text-xs font-semibold text-text-muted uppercase mb-3 px-3">
-                Main
-              </h3>
+              <p className="text-[10px] font-semibold text-text-muted uppercase tracking-widest mb-2 px-2">
+                Navigation
+              </p>
             )}
-            <div className="space-y-1">
+            <div className="space-y-0.5">
+              <NavItem
+                icon={LayoutDashboard}
+                label="Dashboard"
+                collapsed={sidebarCollapsed}
+                active={isActive('/dashboard') || isActive('/')}
+                onClick={(e) => { e.stopPropagation(); navigate('/dashboard') }}
+              />
               <NavItem
                 icon={FolderOpen}
                 label="Documents"
                 collapsed={sidebarCollapsed}
-                active={isActive('/documents') || isActive('/') || isActive('/dashboard')}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  navigate('/documents')
-                }}
+                active={isActive('/documents')}
+                onClick={(e) => { e.stopPropagation(); navigate('/documents') }}
               />
-              
-              {/* AI Chat with New Chat button */}
+
+              {/* AI Chat with New Chat */}
               {sidebarCollapsed ? (
                 <NavItem
                   icon={MessageSquare}
                   label="AI Chat"
-                  shortLabel="AI"
+                  shortLabel="Chat"
                   collapsed={sidebarCollapsed}
-                  active={location.pathname.startsWith('/chat')}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    navigate('/chat')
-                  }}
+                  active={isActivePrefix('/chat')}
+                  onClick={(e) => { e.stopPropagation(); navigate('/chat') }}
                 />
               ) : (
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-0.5">
                   <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      navigate('/chat')
-                    }}
+                    onClick={(e) => { e.stopPropagation(); navigate('/chat') }}
                     className={
-                      'flex-1 flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all ' +
-                      (location.pathname.startsWith('/chat') 
-                        ? 'bg-primary-500/20 text-primary-500' 
+                      'flex-1 flex items-center gap-2.5 px-2.5 py-2 rounded-lg transition-all text-sm ' +
+                      (isActivePrefix('/chat')
+                        ? 'bg-primary-500/15 text-primary-400 font-medium'
                         : 'text-text-secondary hover:bg-dark-hover hover:text-text-primary')
                     }
                   >
-                    <MessageSquare className="w-5 h-5 flex-shrink-0" />
-                    <span className="text-sm flex-1 text-left">AI Chat</span>
+                    <MessageSquare className="w-[18px] h-[18px] flex-shrink-0" />
+                    <span className="flex-1 text-left">AI Chat</span>
                   </button>
                   <button
                     onClick={handleNewChat}
-                    className="p-2.5 hover:bg-dark-hover rounded-lg transition-colors group"
-                    title="Start New Chat"
+                    className="p-2 hover:bg-dark-hover rounded-lg transition-colors group"
+                    title="New Chat"
                   >
-                    <Plus className="w-5 h-5 text-text-secondary group-hover:text-primary-500" />
+                    <Plus className="w-4 h-4 text-text-muted group-hover:text-primary-400" />
                   </button>
                 </div>
               )}
@@ -177,136 +173,123 @@ const Sidebar = () => {
                 icon={History}
                 label="History"
                 collapsed={sidebarCollapsed}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setHistoryOpen(true)
-                }}
+                onClick={(e) => { e.stopPropagation(); setHistoryOpen(true) }}
               />
               <NavItem
                 icon={Upload}
                 label="Upload"
                 collapsed={sidebarCollapsed}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setUploadOpen(true)
-                }}
+                onClick={(e) => { e.stopPropagation(); setUploadOpen(true) }}
               />
             </div>
           </div>
 
-          {user?.isAdmin && sidebarCollapsed && <div className="h-px bg-dark-tertiary my-3 mx-4" />}
-
-          {/* Admin Approvals */}
+          {/* Admin */}
           {user?.isAdmin && (
-            <div className="mb-6">
+            <div className="mb-4">
               {!sidebarCollapsed && (
-                <h3 className="text-xs font-semibold text-text-muted uppercase mb-3 px-3">
+                <p className="text-[10px] font-semibold text-text-muted uppercase tracking-widest mb-2 px-2">
                   Admin
-                </h3>
+                </p>
               )}
+              {sidebarCollapsed && <div className="h-px bg-dark-tertiary my-2 mx-2" />}
               <NavItem
                 icon={CheckCircle2}
                 label="Approvals"
                 collapsed={sidebarCollapsed}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setApprovalsOpen(true)
-                }}
+                onClick={(e) => { e.stopPropagation(); setApprovalsOpen(true) }}
               />
             </div>
           )}
 
-          {sidebarCollapsed && <div className="h-px bg-dark-tertiary my-3 mx-4" />}
-
-          {/* Knowledge Base Selector */}
-          <div className="mb-6">
+          {/* Knowledge Base */}
+          <div className="mb-4">
             {!sidebarCollapsed && (
-              <h3 className="text-xs font-semibold text-text-muted uppercase mb-3 px-3">
+              <p className="text-[10px] font-semibold text-text-muted uppercase tracking-widest mb-2 px-2">
                 Knowledge Base
-              </h3>
+              </p>
             )}
-            <div className="space-y-1">
+            {sidebarCollapsed && <div className="h-px bg-dark-tertiary my-2 mx-2" />}
+            <div className="space-y-0.5">
               {allowedKBs.map((kbId) => {
                 const kb = KNOWLEDGE_BASES[kbId]
                 if (!kb) return null
-                const Icon = iconMap[kb.icon] || Server
+                const Icon = iconMap[kb.icon] || Database
                 const isKBActive = currentKB === kbId
 
-                return (
+                return sidebarCollapsed ? (
                   <button
                     key={kbId}
-                    onClick={handleKBClick(kbId)}  // Uses updated conditional logic
+                    onClick={handleKBClick(kbId)}
+                    className="group w-full flex flex-col items-center gap-0.5 px-1 py-2 rounded-lg transition-colors hover:bg-dark-hover"
+                    title={kb.name}
+                  >
+                    <Icon className={`w-[18px] h-[18px] ${isKBActive ? 'text-primary-400' : 'text-text-muted'}`} />
+                    <span className={`text-[9px] text-center leading-tight ${isKBActive ? 'text-primary-400 font-medium' : 'text-text-muted'}`}>
+                      {kb.name.split(' ')[0]}
+                    </span>
+                  </button>
+                ) : (
+                  <button
+                    key={kbId}
+                    onClick={handleKBClick(kbId)}
                     className={
-                      'w-full transition-colors ' + 
-                      (sidebarCollapsed 
-                        ? 'group flex flex-col items-center gap-1 px-2 py-3 filter hover:brightness-95 active:brightness-90' 
-                        : 'flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-dark-hover') + 
-                      (isKBActive && !sidebarCollapsed ? ' bg-primary-500/20' : '')
+                      'w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg transition-all text-sm ' +
+                      (isKBActive
+                        ? 'bg-primary-500/15 text-primary-400 font-medium'
+                        : 'text-text-secondary hover:bg-dark-hover hover:text-text-primary')
                     }
                     title={kb.name}
                   >
-                    <Icon className={
-                      (isKBActive ? 'text-primary-500' : 'text-text-secondary') + ' ' + 
-                      (sidebarCollapsed ? 'w-6 h-6' : 'w-5 h-5') + ' group-hover:text-text-primary'
-                    } />
-                    <span className={
-                      (sidebarCollapsed 
-                        ? 'text-[10px] text-center leading-tight ' + (isKBActive ? 'text-primary-500 font-medium' : 'text-text-secondary') 
-                        : 'flex-1 text-left text-sm ' + (isKBActive ? 'text-primary-500 font-medium' : 'text-text-secondary')
-                      ) + ' group-hover:text-text-primary'
-                    }>
-                      {sidebarCollapsed ? kb.name.split(' ')[0] : kb.name}
-                    </span>
+                    <Icon className="w-[18px] h-[18px] flex-shrink-0" />
+                    <span className="flex-1 text-left truncate">{kb.name}</span>
+                    {isKBActive && (
+                      <div className="w-1.5 h-1.5 rounded-full bg-primary-400" />
+                    )}
                   </button>
                 )
               })}
             </div>
           </div>
 
-          {sidebarCollapsed && <div className="h-px bg-dark-tertiary my-3 mx-4" />}
-
           {/* Quick Links */}
           <div>
             {!sidebarCollapsed && (
-              <h3 className="text-xs font-semibold text-text-muted uppercase mb-3 px-3">
+              <p className="text-[10px] font-semibold text-text-muted uppercase tracking-widest mb-2 px-2">
                 Quick Links
-              </h3>
+              </p>
             )}
-            <div className="space-y-1">
-              <NavItem
-                icon={Bell}
-                label="What's New"
-                shortLabel="News"
-                collapsed={sidebarCollapsed}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setWhatsNewOpen(true)
-                }}
-              />
-            </div>
+            {sidebarCollapsed && <div className="h-px bg-dark-tertiary my-2 mx-2" />}
+            <NavItem
+              icon={Sparkles}
+              label="What's New"
+              shortLabel="New"
+              collapsed={sidebarCollapsed}
+              onClick={(e) => { e.stopPropagation(); setWhatsNewOpen(true) }}
+            />
           </div>
         </nav>
 
-        <div className="p-4 border-t border-dark-tertiary space-y-1 flex-shrink-0">
+        {/* Footer */}
+        <div className="px-3 py-3 border-t border-dark-tertiary space-y-0.5 flex-shrink-0">
           <NavItem
             icon={Settings}
             label="Settings"
             collapsed={sidebarCollapsed}
-            onClick={(e) => {
-              e.stopPropagation()
-              setSettingsOpen(true)
-            }}
+            onClick={(e) => { e.stopPropagation(); setSettingsOpen(true) }}
           />
           <button
-            onClick={(e) => {
-              e.stopPropagation()
-              setShowLogoutConfirm(true)
-            }}
-            className={'w-full flex items-center text-text-secondary hover:text-red-400 transition-colors group ' + (sidebarCollapsed ? 'flex-col gap-1 px-2 py-3 filter hover:brightness-95 active:brightness-90' : 'gap-3 px-3 py-2.5 rounded-lg hover:bg-dark-hover')}
-            title="Logout"
+            onClick={(e) => { e.stopPropagation(); setShowLogoutConfirm(true) }}
+            className={
+              'w-full flex items-center text-text-muted hover:text-red-400 transition-colors ' +
+              (sidebarCollapsed
+                ? 'flex-col gap-0.5 px-1 py-2 rounded-lg hover:bg-dark-hover'
+                : 'gap-2.5 px-2.5 py-2 rounded-lg hover:bg-red-500/10')
+            }
+            title="Sign out"
           >
-            <LogOut className={sidebarCollapsed ? 'w-6 h-6' : 'w-5 h-5'} />
-            <span className={sidebarCollapsed ? 'text-[10px]' : 'text-sm'}>Logout</span>
+            <LogOut className={sidebarCollapsed ? 'w-[18px] h-[18px]' : 'w-[18px] h-[18px]'} />
+            <span className={sidebarCollapsed ? 'text-[9px]' : 'text-sm'}>Sign out</span>
           </button>
         </div>
       </aside>
@@ -321,10 +304,10 @@ const Sidebar = () => {
         isOpen={showLogoutConfirm}
         onClose={() => setShowLogoutConfirm(false)}
         onConfirm={handleLogout}
-        title="Confirm Logout"
-        message="Are you sure you want to log out? Your current session will end."
-        confirmText="Logout"
-        cancelText="Stay Logged In"
+        title="Sign Out"
+        message="Are you sure you want to sign out? Your current session will end."
+        confirmText="Sign Out"
+        cancelText="Stay Signed In"
         variant="danger"
       />
     </>
@@ -337,14 +320,15 @@ const NavItem = ({ icon: Icon, label, shortLabel, collapsed, onClick, badge, act
   if (collapsed) {
     return (
       <button onClick={onClick}
-        className="group w-full flex flex-col items-center gap-1 px-2 py-3 transition-colors filter hover:brightness-95 active:brightness-90"
+        className="group w-full flex flex-col items-center gap-0.5 px-1 py-2 rounded-lg transition-colors hover:bg-dark-hover"
+        title={label}
       >
-        <Icon className={(active ? 'w-6 h-6 text-primary-500' : 'w-5 h-5 text-text-secondary') + ' group-hover:text-text-primary'} />
-        <span className={(active ? 'text-[10px] text-primary-500 font-medium' : 'text-[10px] text-text-secondary') + ' group-hover:text-text-primary'}>
+        <Icon className={`w-[18px] h-[18px] ${active ? 'text-primary-400' : 'text-text-muted group-hover:text-text-secondary'}`} />
+        <span className={`text-[9px] text-center leading-tight ${active ? 'text-primary-400 font-medium' : 'text-text-muted group-hover:text-text-secondary'}`}>
           {displayLabel}
         </span>
         {badge > 0 && (
-          <span className="absolute -top-1 -right-1 bg-primary-500 text-text-primary text-xs font-bold rounded-full flex items-center justify-center min-w-[18px] h-[18px] px-1">
+          <span className="absolute -top-1 -right-1 bg-primary-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center min-w-[16px] h-[16px] px-0.5">
             {badge > 99 ? '99+' : badge}
           </span>
         )}
@@ -356,14 +340,16 @@ const NavItem = ({ icon: Icon, label, shortLabel, collapsed, onClick, badge, act
     <button
       onClick={onClick}
       className={
-        'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all relative ' +
-        (active ? 'bg-primary-500/20 text-primary-500' : 'text-text-secondary hover:bg-dark-hover hover:text-text-primary')
+        'w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg transition-all relative text-sm ' +
+        (active
+          ? 'bg-primary-500/15 text-primary-400 font-medium'
+          : 'text-text-secondary hover:bg-dark-hover hover:text-text-primary')
       }
     >
-      <Icon className="w-5 h-5 flex-shrink-0" />
-      <span className="text-sm flex-1 text-left">{label}</span>
+      <Icon className="w-[18px] h-[18px] flex-shrink-0" />
+      <span className="flex-1 text-left">{label}</span>
       {badge > 0 && (
-        <span className="bg-primary-500 text-text-primary text-xs font-bold rounded-full flex items-center justify-center min-w-[18px] h-[18px] px-1">
+        <span className="bg-primary-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center min-w-[16px] h-[16px] px-0.5">
           {badge > 99 ? '99+' : badge}
         </span>
       )}

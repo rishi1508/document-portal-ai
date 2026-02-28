@@ -1,164 +1,218 @@
-# Document Portal - AI-Powered Knowledge Management System
+# DocuMind AI - Enterprise Document Intelligence Platform
 
-A modern, production-ready document management system with AI-powered search using AWS Bedrock, built with React and AWS services.
+An AI-powered document management system with natural language search, built on a fully serverless AWS architecture. Upload documents, organize them into department knowledge bases, and query them using conversational AI powered by RAG (Retrieval-Augmented Generation).
 
-## Features
+<!-- Screenshots: Add screenshots of the Dashboard, Chat, and Documents pages here -->
+<!-- ![Dashboard](docs/screenshots/dashboard.png) -->
+<!-- ![AI Chat](docs/screenshots/chat.png) -->
+<!-- ![Documents](docs/screenshots/documents.png) -->
 
-- **Bulk Document Upload** - Upload up to 50 documents at once with auto-generated titles
-- **AI-Powered Search** - Query documents using natural language via AWS Bedrock
-- **Department-Based Access Control** - Role-based permissions for different teams
-- **Approval Workflow** - Admin approval system for document uploads
-- **Knowledge Base Integration** - Automatic sync with AWS Bedrock Knowledge Bases
-- **Real-time Pagination** - Handle large document libraries efficiently
-- **Modern Dark UI** - Beautiful, responsive interface with Tailwind CSS
+## Key Technical Highlights
+
+- **RAG Architecture** - Vector embeddings stored in Qdrant, retrieved at query time, and fed to an LLM for grounded, cited answers
+- **Serverless Backend** - AWS Lambda + API Gateway + S3 + DynamoDB with zero server management
+- **Real-time Document Processing** - Upload triggers automatic text extraction (PDF/DOCX), chunking, embedding, and vector indexing
+- **Department-level RBAC** - Knowledge bases scoped by team (DevOps, Platform, Product, Analysts) with role-based permissions
+- **Enterprise UI** - Dark/light theme, loading skeletons, drag-and-drop upload, document preview, bulk actions
+- **Conversation Context** - Multi-turn AI chat with conversation history, auto-generated titles, and source citations
 
 ## Architecture
 
+```
+                                    +------------------+
+                                    |   React Frontend |
+                                    |   (Vite + TW)    |
+                                    +--------+---------+
+                                             |
+                              +--------------+--------------+
+                              |                             |
+                    +---------v---------+        +----------v----------+
+                    |   API Gateway     |        |   Express Backend   |
+                    |   (REST API)      |        |   (Node.js :3200)   |
+                    +---------+---------+        +----------+----------+
+                              |                             |
+              +---------------+---------------+    +--------+--------+
+              |               |               |    |                 |
+        +-----v-----+  +-----v-----+  +------v-+  |  +--------+    |
+        |   Lambda   |  |   Lambda   |  | Lambda |  |  | Groq / |    |
+        |  Upload    |  |  List Docs |  | Approve|  |  | Bedrock|    |
+        +-----+------+  +-----+-----+  +----+---+  |  +---+----+    |
+              |               |              |      |      |         |
+        +-----v---------------v--------------v------v------v---------v--+
+        |                        AWS S3                                  |
+        |            (Document Storage by KB Folder)                     |
+        +----------------------------------------------------------------+
+              |                                           |
+        +-----v-----------+                    +----------v---------+
+        |    DynamoDB      |                    |     Qdrant         |
+        | (Approval Table) |                    | (Vector Database)  |
+        +------------------+                    +--------------------+
+```
+
+## Features
+
+### Document Management
+- Bulk upload (up to 50 files, drag-and-drop support)
+- File type icons and color-coded badges (PDF, DOCX, TXT, MD)
+- Document preview (PDF in-browser, Word via Google Docs Viewer, text/markdown inline)
+- Sort by name, type, size, or date; full-text search
+- Bulk select, download, and delete (admin)
+- Copy shareable presigned URL to clipboard
+- Document metadata panel with S3 key details
+
+### AI Chat
+- Natural language Q&A powered by RAG
+- Knowledge base-scoped conversations
+- Source citations with clickable document links
+- Conversation history with auto-generated titles
+- Multi-turn context (last 10 messages)
+- Copy assistant responses to clipboard
+
+### Enterprise Dashboard
+- Document count and storage stats across knowledge bases
+- Per-KB document breakdown with progress bars
+- Recent documents and chat history feeds
+- Quick action cards for common tasks
+
+### Admin Workflow
+- Document approval queue with pagination
+- Approve/reject with multi-stage progress indicator
+- Notification system for uploads and approvals
+
+### Settings & UX
+- Dark/Light/System theme with polished CSS variables
+- Adjustable font size (Small/Medium/Large)
+- Collapsible sidebar with icon-only mode
+- Loading skeletons throughout (no spinners)
+- Glassmorphic header and input areas
+- Keyboard shortcuts (Enter to send, Shift+Enter for newline)
+- Error boundary with recovery UI
+
+## Tech Stack
+
 ### Frontend
-- **React 18** with Vite
-- **Tailwind CSS** for styling
-- **Lucide React** for icons
-- **React Hot Toast** for notifications
+| Technology | Purpose |
+|-----------|---------|
+| React 18 | UI framework |
+| Vite 5 | Build tool |
+| Tailwind CSS 3 | Utility-first styling |
+| Lucide React | Icon library |
+| React Router 6 | Client-side routing |
+| React Hot Toast | Toast notifications |
+| Framer Motion | Animations |
+| date-fns | Date formatting |
 
-### Backend (AWS)
-- **Lambda Functions** (Python 3.13)
-  - Document upload handler
-  - List documents from S3
-  - Bedrock query handler
-  - Approval workflow (bulk, pending, approve, reject)
-- **S3** for document storage
-- **DynamoDB** for approval tracking
-- **API Gateway** REST API
-- **Bedrock Knowledge Bases** for AI search
-- **CloudWatch** for logging
+### Backend
+| Technology | Purpose |
+|-----------|---------|
+| Node.js + Express | API server |
+| Groq SDK | LLM inference |
+| Qdrant | Vector database |
+| AWS SDK | S3, DynamoDB integration |
+| PDF-Parse | PDF text extraction |
+| Mammoth | DOCX text extraction |
 
-## Prerequisites
+### Infrastructure (AWS)
+| Service | Purpose |
+|---------|---------|
+| Lambda | Serverless functions |
+| API Gateway | REST API endpoints |
+| S3 | Document storage |
+| DynamoDB | Approval workflow |
+| Bedrock | AI/ML (optional) |
+| CloudWatch | Logging & monitoring |
 
-- Node.js 18+ and npm
+## Getting Started
+
+### Prerequisites
+- Node.js 18+
 - AWS CLI configured
-- AWS Account with access to:
-  - Lambda
-  - S3
-  - DynamoDB
-  - API Gateway
-  - Bedrock
+- Qdrant instance (cloud or self-hosted)
 
-## Setup
+### 1. Clone & Install
 
-### 1. Clone the repository
-
-\`\`\`bash
-git clone <your-repo-url>
-cd document-portal-react
-\`\`\`
-
-### 2. Install dependencies
-
-\`\`\`bash
+```bash
+git clone https://github.com/rishi1508/document-portal-ai.git
+cd document-portal-ai/document-portal-react
 npm install
-\`\`\`
+```
 
-### 3. Configure environment variables
+### 2. Configure Environment
 
-Copy `.env.example` to `.env` and fill in your AWS details:
-
-\`\`\`bash
+```bash
 cp .env.example .env
-\`\`\`
+```
 
-Edit `.env` with your values:
-- AWS account ID
-- API Gateway ID
-- S3 bucket name
-- Bedrock Knowledge Base ID
-- DynamoDB table name
+Fill in your AWS and backend details:
 
-### 4. Deploy AWS Infrastructure
+| Variable | Description |
+|----------|-------------|
+| `VITE_API_BASE` | API Gateway base URL |
+| `VITE_CHAT_API` | Backend chat endpoint |
+| `VITE_S3_BUCKET` | S3 bucket name |
+| `VITE_AWS_REGION` | AWS region |
 
-#### Create DynamoDB Table
+### 3. Start Backend
 
-\`\`\`bash
-aws dynamodb create-table \
-  --table-name DocApprovalRequests \
-  --attribute-definitions \
-    AttributeName=requestId,AttributeType=S \
-    AttributeName=status,AttributeType=S \
-    AttributeName=createdAt,AttributeType=S \
-  --key-schema AttributeName=requestId,KeyType=HASH \
-  --billing-mode PAY_PER_REQUEST \
-  --global-secondary-indexes \
-    '[{
-      "IndexName": "status-createdAt-index",
-      "KeySchema": [
-        {"AttributeName": "status", "KeyType": "HASH"},
-        {"AttributeName": "createdAt", "KeyType": "RANGE"}
-      ],
-      "Projection": {"ProjectionType": "ALL"}
-    }]' \
-  --region ap-south-1
-\`\`\`
+```bash
+cd ../backend
+npm install
+node index.js
+```
 
-#### Deploy Lambda Functions
+### 4. Start Frontend
 
-See `backend/` directory for Lambda function code and deployment instructions.
-
-#### Create API Gateway Endpoints
-
-Use the provided `create_approval_api_endpoints.sh` script or manually create endpoints in AWS Console.
-
-### 5. Start development server
-
-\`\`\`bash
+```bash
+cd ../document-portal-react
 npm run dev
-\`\`\`
+```
 
-## Environment Variables
+### 5. Demo Credentials
 
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `VITE_AWS_REGION` | AWS region | `ap-south-1` |
-| `VITE_AWS_ACCOUNT_ID` | Your AWS account ID | `123456789012` |
-| `VITE_API_GATEWAY_ID` | API Gateway ID | `abc123xyz` |
-| `VITE_API_BASE` | API Gateway base URL | `https://abc123.execute-api.ap-south-1.amazonaws.com/test` |
-| `VITE_S3_BUCKET` | S3 bucket for documents | `my-document-bucket` |
-| `VITE_BEDROCK_KB_ID` | Bedrock Knowledge Base ID | `ABC123DEF456` |
-| `VITE_APPROVALS_TABLE` | DynamoDB table name | `DocApprovalRequests` |
+| Username | Password | Department |
+|----------|----------|------------|
+| devops-user | devops123 | DevOps |
+| platform-user | platform123 | Platform Engineering |
+| analyst-user | analyst123 | Solution Analysts |
+| product-user | product123 | Product Management |
 
-## Usage
+Admin accounts use the `-admin` suffix (e.g., `devops-admin` / `devopsadmin123`).
 
-### Upload Documents
+## Project Structure
 
-1. Click **Upload** in sidebar
-2. Choose single or bulk upload
-3. Select knowledge base group
-4. Choose files (max 50 for bulk)
-5. Submit for approval
-
-### Admin Approval
-
-1. Click **Approvals** in sidebar (admin only)
-2. Review pending requests
-3. Approve or reject documents
-4. Approved files sync to Knowledge Base automatically
-
-### AI Search
-
-1. Type questions in the chat input
-2. AI searches across all approved documents
-3. Responses include source citations
+```
+document-portal-ai/
+├── document-portal-react/     # React frontend
+│   ├── src/
+│   │   ├── pages/             # Dashboard, Documents, Chat, Admin, Login
+│   │   ├── components/
+│   │   │   ├── layout/        # Sidebar, Header, ChatContainer, InputArea
+│   │   │   ├── chat/          # Message, WelcomeScreen, ThinkingIndicator
+│   │   │   ├── modals/        # Upload, Settings, History, Approvals
+│   │   │   └── common/        # ProtectedRoute, ErrorBoundary
+│   │   ├── contexts/          # Auth, Chat, Settings, Notifications
+│   │   ├── services/          # API client (docService)
+│   │   └── config/            # Knowledge base definitions
+│   └── public/
+├── backend/                   # Express API server
+│   ├── index.js               # Main server (chat, upload, documents)
+│   ├── indexing-worker.js     # Background document indexer
+│   └── sync-s3-docs.js        # S3 document sync utility
+└── aws/                       # AWS CLI/SDK distribution
+```
 
 ## Security Notes
 
-- Never commit `.env` files to version control
-- Rotate AWS credentials regularly
-- Use IAM roles with least-privilege access
-- Enable CloudTrail for audit logging
-- Configure S3 bucket policies appropriately
+- Environment variables are never committed (`.env` in `.gitignore`)
+- Demo authentication is client-side only (for portfolio demonstration)
+- Production deployment should use AWS Cognito or similar for authentication
+- S3 presigned URLs expire after 15 minutes
+- RBAC enforced at the knowledge base level per department
 
 ## License
 
 MIT
 
-## Support
+## Author
 
-For issues and questions, please open a GitHub issue.
+**Rishi** - [GitHub](https://github.com/rishi1508)

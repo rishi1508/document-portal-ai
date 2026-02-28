@@ -1,5 +1,4 @@
 import React, { createContext, useContext, useState, useEffect } from 'react'
-import toast from 'react-hot-toast'
 
 const SettingsContext = createContext()
 
@@ -18,18 +17,21 @@ export const SettingsProvider = ({ children }) => {
     notifications: true,
     language: 'en',
   })
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(true) // Default to collapsed
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true)
 
   useEffect(() => {
-    // Load settings from localStorage
     const savedSettings = localStorage.getItem('settings')
     if (savedSettings) {
-      const parsed = JSON.parse(savedSettings)
-      setSettings(parsed)
-      applyTheme(parsed.theme)
-      applyFontSize(parsed.fontSize)
+      try {
+        const parsed = JSON.parse(savedSettings)
+        setSettings(parsed)
+        applyTheme(parsed.theme)
+        applyFontSize(parsed.fontSize)
+      } catch {
+        applyTheme(settings.theme)
+        applyFontSize(settings.fontSize)
+      }
     } else {
-      // Apply default theme and font size
       applyTheme(settings.theme)
       applyFontSize(settings.fontSize)
     }
@@ -38,7 +40,7 @@ export const SettingsProvider = ({ children }) => {
     if (savedCollapsed !== null) {
       setSidebarCollapsed(savedCollapsed === 'true')
     } else {
-      setSidebarCollapsed(true) // Default collapsed
+      setSidebarCollapsed(true)
       localStorage.setItem('sidebarCollapsed', 'true')
     }
   }, [])
@@ -48,12 +50,9 @@ export const SettingsProvider = ({ children }) => {
       const updated = { ...prev, ...newSettings }
       localStorage.setItem('settings', JSON.stringify(updated))
 
-      // Apply theme if changed
       if (newSettings.theme && newSettings.theme !== prev.theme) {
         applyTheme(newSettings.theme)
       }
-
-      // Apply font size if changed
       if (newSettings.fontSize && newSettings.fontSize !== prev.fontSize) {
         applyFontSize(newSettings.fontSize)
       }
@@ -64,43 +63,43 @@ export const SettingsProvider = ({ children }) => {
 
   const applyTheme = (theme) => {
     let actualTheme = theme
-
     if (theme === 'system') {
-      actualTheme = window.matchMedia('(prefers-color-scheme: dark)').matches
-        ? 'dark'
-        : 'light'
+      actualTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
     }
 
     if (actualTheme === 'light') {
       document.documentElement.classList.remove('dark')
       document.documentElement.classList.add('light')
-      // Update CSS variables for light mode
-      document.documentElement.style.setProperty('--bg-primary', '#f9fafb')
+      document.documentElement.style.setProperty('--bg-primary', '#f8fafc')
       document.documentElement.style.setProperty('--bg-secondary', '#ffffff')
-      document.documentElement.style.setProperty('--bg-tertiary', '#f3f4f6')
-      document.documentElement.style.setProperty('--bg-hover', '#e5e7eb')
-      document.documentElement.style.setProperty('--text-primary', '#1f2937')
-      document.documentElement.style.setProperty('--text-secondary', '#6b7280')
-      document.documentElement.style.setProperty('--text-muted', '#9ca3af')
-      document.documentElement.style.setProperty('--border-color', '#e5e7eb')
+      document.documentElement.style.setProperty('--bg-tertiary', '#f1f5f9')
+      document.documentElement.style.setProperty('--bg-hover', '#e2e8f0')
+      document.documentElement.style.setProperty('--bg-elevated', '#f8fafc')
+      document.documentElement.style.setProperty('--text-primary', '#0f172a')
+      document.documentElement.style.setProperty('--text-secondary', '#475569')
+      document.documentElement.style.setProperty('--text-muted', '#94a3b8')
+      document.documentElement.style.setProperty('--border-color', '#e2e8f0')
+      document.documentElement.style.setProperty('--accent', '#4f46e5')
+      document.documentElement.style.setProperty('--accent-hover', '#4338ca')
     } else {
       document.documentElement.classList.remove('light')
       document.documentElement.classList.add('dark')
-      // Restore dark mode CSS variables
-      document.documentElement.style.setProperty('--bg-primary', '#0f1117')
-      document.documentElement.style.setProperty('--bg-secondary', '#1a1d29')
-      document.documentElement.style.setProperty('--bg-tertiary', '#23263a')
-      document.documentElement.style.setProperty('--bg-hover', '#2d3148')
-      document.documentElement.style.setProperty('--text-primary', '#ffffff')
-      document.documentElement.style.setProperty('--text-secondary', '#9ca3af')
-      document.documentElement.style.setProperty('--text-muted', '#6b7280')
-      document.documentElement.style.setProperty('--border-color', '#2d3148')
+      document.documentElement.style.setProperty('--bg-primary', '#0a0c10')
+      document.documentElement.style.setProperty('--bg-secondary', '#12141c')
+      document.documentElement.style.setProperty('--bg-tertiary', '#1a1d2b')
+      document.documentElement.style.setProperty('--bg-hover', '#252838')
+      document.documentElement.style.setProperty('--bg-elevated', '#2a2d3e')
+      document.documentElement.style.setProperty('--text-primary', '#f1f5f9')
+      document.documentElement.style.setProperty('--text-secondary', '#94a3b8')
+      document.documentElement.style.setProperty('--text-muted', '#64748b')
+      document.documentElement.style.setProperty('--border-color', '#1e2235')
+      document.documentElement.style.setProperty('--accent', '#6366f1')
+      document.documentElement.style.setProperty('--accent-hover', '#4f46e5')
     }
   }
 
   const applyFontSize = (size) => {
     const root = document.documentElement
-
     switch (size) {
       case 'small':
         root.style.setProperty('font-size', '13px')
@@ -128,7 +127,6 @@ export const SettingsProvider = ({ children }) => {
     updateSettings,
     sidebarCollapsed,
     toggleSidebar,
-    // No currentKB here - managed by ChatContext
   }
 
   return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>

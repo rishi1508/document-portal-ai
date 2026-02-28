@@ -9,18 +9,20 @@ const ChatContainer = () => {
   const hasMessages = chat.messages.length > 0
   const welcomeSentRef = useRef({})
 
-  // Show loading if context loading
   if (isLoading) {
     return (
-      <div className="flex-1 flex flex-col min-h-0 h-full w-full overflow-y-auto pt-24 pb-40 px-4 items-center justify-center">
-        <div className="text-center">Initializing chat...</div>
+      <div className="flex-1 flex flex-col min-h-0 h-full w-full overflow-y-auto pt-20 pb-40 px-4 items-center justify-center">
+        <div className="text-center">
+          <div className="w-8 h-8 border-2 border-primary-500/30 border-t-primary-500 rounded-full animate-spin mx-auto mb-3" />
+          <p className="text-sm text-text-muted">Initializing chat...</p>
+        </div>
       </div>
     )
   }
 
   useEffect(() => {
     const chatKey = currentChatId || 'temp'
-    if (hasMessages || welcomeSentRef.current[chatKey]) return  // Skip if messages exist or sent
+    if (hasMessages || welcomeSentRef.current[chatKey]) return
 
     const welcomeMessages = [
       "Hello! I'm here to help you with information from our company's knowledge base. Feel free to ask anything.",
@@ -43,14 +45,14 @@ const ChatContainer = () => {
   }, [currentChatId, hasMessages, addMessage])
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 h-full w-full overflow-y-auto pt-24 pb-40 px-4">
+    <div className="flex-1 flex flex-col min-h-0 h-full w-full overflow-y-auto pt-20 pb-40 px-4 scrollbar-thin">
       {hasMessages ? (
-        <div className="max-w-5xl mx-auto w-full">
+        <div className="max-w-4xl mx-auto w-full">
           <ChatMessages />
         </div>
       ) : (
         <div className="flex flex-1 items-center justify-center min-h-0">
-          <div className="max-w-5xl w-full">
+          <div className="max-w-4xl w-full">
             <WelcomeScreen />
           </div>
         </div>
